@@ -2,19 +2,20 @@
 
 /*
  * Copyright (c) 2014 Wind River Systems, Inc.
+ * Copyright (c) 2020 Synopsys.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _ARC_V2_IRQ_UNIT__H
-#define _ARC_V2_IRQ_UNIT__H
+#ifndef ZEPHYR_INCLUDE_ARCH_ARC_V2_ARCV2_IRQ_UNIT_H_
+#define ZEPHYR_INCLUDE_ARCH_ARC_V2_ARCV2_IRQ_UNIT_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* configuration flags for interrupt unit */
-
+#define _ARC_V2_INT_PRIO_MASK 0xf
 #define _ARC_V2_INT_DISABLE 0
 #define _ARC_V2_INT_ENABLE 1
 
@@ -24,20 +25,16 @@ extern "C" {
 #ifndef _ASMLANGUAGE
 
 /*
- * WARNING:
+ * NOTE:
  *
- * All APIs provided by this file must be invoked with INTERRUPTS LOCKED. The
+ * All APIs provided by this file are protected with INTERRUPTS LOCKED. The
  * APIs themselves are writing the IRQ_SELECT, selecting which IRQ's registers
  * it wants to write to, then write to them: THIS IS NOT AN ATOMIC OPERATION.
  *
- * Not locking the interrupts inside of the APIs allows a caller to:
+ * Locking the interrupts inside of the APIs are some kind of self-protection
+ * to guarantee the correctness of operation if the callers don't lock
+ * the interrupt.
  *
- * - lock interrupts
- * - call many of these APIs
- * - unlock interrupts
- *
- * thus being more efficient then if the APIs themselves would lock
- * interrupts.
  */
 
 /*
@@ -48,13 +45,18 @@ extern "C" {
  * @return N/A
  */
 
-static inline void _arc_v2_irq_unit_irq_enable_set(
+static ALWAYS_INLINE
+void z_arc_v2_irq_unit_irq_enable_set(
 	int irq,
 	unsigned char enable
 	)
 {
-	_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
-	_arc_v2_aux_reg_write(_ARC_V2_IRQ_ENABLE, enable);
+	unsigned int key = arch_irq_lock();
+
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_ENABLE, enable);
+
+	arch_irq_unlock(key);
 }
 
 /*
@@ -65,9 +67,10 @@ static inline void _arc_v2_irq_unit_irq_enable_set(
  * @return N/A
  */
 
-static inline void _arc_v2_irq_unit_int_enable(int irq)
+static ALWAYS_INLINE
+void z_arc_v2_irq_unit_int_enable(int irq)
 {
-	_arc_v2_irq_unit_irq_enable_set(irq, _ARC_V2_INT_ENABLE);
+	z_arc_v2_irq_unit_irq_enable_set(irq, _ARC_V2_INT_ENABLE);
 }
 
 /*
@@ -78,10 +81,34 @@ static inline void _arc_v2_irq_unit_int_enable(int irq)
  * @return N/A
  */
 
-static inline void _arc_v2_irq_unit_int_disable(int irq)
+static ALWAYS_INLINE
+void z_arc_v2_irq_unit_int_disable(int irq)
 {
-	_arc_v2_irq_unit_irq_enable_set(irq, _ARC_V2_INT_DISABLE);
+	z_arc_v2_irq_unit_irq_enable_set(irq, _ARC_V2_INT_DISABLE);
 }
+
+/*
+ * @brief Poll the enable status of interrupt
+ *
+ * Polls the enable status of the specified interrupt
+ *
+ * @return 1 enabled, 0 disabled
+ */
+
+static ALWAYS_INLINE
+bool z_arc_v2_irq_unit_int_enabled(int irq)
+{
+	bool ret;
+	unsigned int key = arch_irq_lock();
+
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+	ret = z_arc_v2_aux_reg_read(_ARC_V2_IRQ_ENABLE) & 0x1;
+
+	arch_irq_unlock(key);
+
+	return ret;
+}
+
 
 /*
  * @brief Set interrupt priority
@@ -91,11 +118,51 @@ static inline void _arc_v2_irq_unit_int_disable(int irq)
  * @return N/A
  */
 
-static inline void _arc_v2_irq_unit_prio_set(int irq, unsigned char prio)
+static ALWAYS_INLINE
+void z_arc_v2_irq_unit_prio_set(int irq, unsigned char prio)
 {
-	_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
-	_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY, prio);
+
+	unsigned int key = arch_irq_lock();
+
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+#if defined(CONFIG_ARC_SECURE_FIRMWARE)
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY,
+	(z_arc_v2_aux_reg_read(_ARC_V2_IRQ_PRIORITY) & (~_ARC_V2_INT_PRIO_MASK))
+	| prio);
+#else
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY, prio);
+#endif
+	arch_irq_unlock(key);
 }
+
+#if defined(CONFIG_ARC_SECURE_FIRMWARE)
+/*
+ * @brief Configure the secure state of interrupt
+ *
+ * Configure the secure state of the specified interrupt
+ *
+ * @return N/A
+ */
+static ALWAYS_INLINE
+void z_arc_v2_irq_uinit_secure_set(int irq, bool secure)
+{
+	unsigned int key = arch_irq_lock();
+
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+
+	if (secure) {
+		z_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY,
+		z_arc_v2_aux_reg_read(_ARC_V2_IRQ_PRIORITY)  |
+		_ARC_V2_IRQ_PRIORITY_SECURE);
+	} else {
+		z_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY,
+		z_arc_v2_aux_reg_read(_ARC_V2_IRQ_PRIORITY) &
+		_ARC_V2_INT_PRIO_MASK);
+	}
+
+	arch_irq_unlock(key);
+}
+#endif
 
 /*
  * @brief Set interrupt sensitivity
@@ -108,10 +175,35 @@ static inline void _arc_v2_irq_unit_prio_set(int irq, unsigned char prio)
  * @return N/A
  */
 
-static inline void _arc_v2_irq_unit_sensitivity_set(int irq, int s)
+static ALWAYS_INLINE
+void z_arc_v2_irq_unit_sensitivity_set(int irq, int s)
 {
-	_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
-	_arc_v2_aux_reg_write(_ARC_V2_IRQ_TRIGGER, s);
+	unsigned int key = arch_irq_lock();
+
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_TRIGGER, s);
+
+	arch_irq_unlock(key);
+}
+
+/*
+ * @brief Check whether processor in interrupt/exception state
+ *
+ * Check whether processor in interrupt/exception state
+ *
+ * @return 1 in interrupt/exception state; 0 not in
+ */
+static ALWAYS_INLINE
+bool z_arc_v2_irq_unit_is_in_isr(void)
+{
+	uint32_t act = z_arc_v2_aux_reg_read(_ARC_V2_AUX_IRQ_ACT);
+
+	/* in exception ?*/
+	if (z_arc_v2_aux_reg_read(_ARC_V2_STATUS32) & _ARC_V2_STATUS32_AE) {
+		return true;
+	}
+
+	return ((act & 0xffff) != 0U);
 }
 
 /*
@@ -123,8 +215,16 @@ static inline void _arc_v2_irq_unit_sensitivity_set(int irq, int s)
  *
  * @return N/A
  */
+static ALWAYS_INLINE
+void z_arc_v2_irq_unit_trigger_set(int irq, unsigned int trigger)
+{
+	unsigned int key = arch_irq_lock();
 
-void _arc_v2_irq_unit_trigger_set(int irq, unsigned int trigger);
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_TRIGGER, trigger);
+
+	arch_irq_unlock(key);
+}
 
 /*
  * @brief Returns an IRQ line trigger type
@@ -132,10 +232,21 @@ void _arc_v2_irq_unit_trigger_set(int irq, unsigned int trigger);
  * Gets the IRQ line <irq> trigger type.
  * Valid values for <trigger> are _ARC_V2_INT_LEVEL and _ARC_V2_INT_PULSE.
  *
- * @return N/A
+ * @return trigger state
  */
+static ALWAYS_INLINE
+unsigned int z_arc_v2_irq_unit_trigger_get(int irq)
+{
+	unsigned int ret;
+	unsigned int key = arch_irq_lock();
 
-unsigned int _arc_v2_irq_unit_trigger_get(int irq);
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+	ret = z_arc_v2_aux_reg_read(_ARC_V2_IRQ_TRIGGER);
+
+	arch_irq_unlock(key);
+
+	return ret;
+}
 
 /*
  * @brief Send EOI signal to interrupt unit
@@ -143,13 +254,18 @@ unsigned int _arc_v2_irq_unit_trigger_get(int irq);
  * This routine sends an EOI (End Of Interrupt) signal to the interrupt unit
  * to clear a pulse-triggered interrupt.
  *
- * Interrupts must be locked or the ISR operating at P0 when invoking this
- * function.
- *
  * @return N/A
  */
+static ALWAYS_INLINE
+void z_arc_v2_irq_unit_int_eoi(int irq)
+{
+	unsigned int key = arch_irq_lock();
 
-void _arc_v2_irq_unit_int_eoi(int irq);
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+	z_arc_v2_aux_reg_write(_ARC_V2_IRQ_PULSE_CANCEL, 1);
+
+	arch_irq_unlock(key);
+}
 
 #endif /* _ASMLANGUAGE */
 
@@ -157,4 +273,4 @@ void _arc_v2_irq_unit_int_eoi(int irq);
 }
 #endif
 
-#endif /* _ARC_V2_IRQ_UNIT__H */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARC_V2_ARCV2_IRQ_UNIT_H_ */

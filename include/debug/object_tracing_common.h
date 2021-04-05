@@ -9,14 +9,16 @@
  * @brief APIs used to add or remove an object in a debug tracing list.
  */
 
-#ifndef _OBJECT_TRACING_COMMON_H_
-#define _OBJECT_TRACING_COMMON_H_
+#ifndef ZEPHYR_INCLUDE_DEBUG_OBJECT_TRACING_COMMON_H_
+#define ZEPHYR_INCLUDE_DEBUG_OBJECT_TRACING_COMMON_H_
+
+#include <stdbool.h>
 
 #ifndef CONFIG_OBJECT_TRACING
 
-#define SYS_TRACING_OBJ_INIT(name, obj) do { } while ((0))
-#define SYS_TRACING_OBJ_INIT_DLL(name, obj) do { } while ((0))
-#define SYS_TRACING_OBJ_REMOVE_DLL(name, obj) do { } while ((0))
+#define SYS_TRACING_OBJ_INIT(name, obj) do { } while (false)
+#define SYS_TRACING_OBJ_INIT_DLL(name, obj) do { } while (false)
+#define SYS_TRACING_OBJ_REMOVE_DLL(name, obj) do { } while (false)
 
 #else
 
@@ -31,16 +33,19 @@
  * @param name Name of the trace list.
  * @param obj Object to be added in the trace list.
  */
-#define SYS_TRACING_OBJ_INIT(name, obj)		       \
-	do {					       \
-		unsigned int key;		       \
-						       \
-		key = irq_lock();		       \
-		(obj)->__next =  _trace_list_ ## name; \
-		_trace_list_ ## name = obj;	       \
-		irq_unlock(key);		       \
-	}					       \
-	while (0)
+#define SYS_TRACING_OBJ_INIT(name, obj)			       \
+	do {						       \
+		unsigned int key;			       \
+							       \
+		key = irq_lock();			       \
+		if (!(obj)->__linked) {			       \
+			(obj)->__next =  _trace_list_ ## name; \
+			_trace_list_ ## name = obj;	       \
+			(obj)->__linked = 1;		       \
+		}					       \
+		irq_unlock(key);			       \
+	}						       \
+	while (false)
 
 /**
  * @def SYS_TRACING_OBJ_INIT_DLL
@@ -67,7 +72,7 @@
 		_trace_list_ ## name = obj;		      \
 		irq_unlock(key);			      \
 	}						      \
-	while (0)
+	while (false)
 
 /**
  * @def SYS_TRACING_OBJ_REMOVE_DLL
@@ -95,11 +100,7 @@
 		}					      \
 		irq_unlock(key);			      \
 	}						      \
-	while (0)
-
-struct ring_buf;
-
-extern struct ring_buf   *_trace_list_sys_ring_buf;
+	while (false)
 
 #endif  /*CONFIG_OBJECT_TRACING*/
-#endif  /*_OBJECT_TRACING_COMMON_H_*/
+#endif  /*ZEPHYR_INCLUDE_DEBUG_OBJECT_TRACING_COMMON_H_*/

@@ -6,13 +6,15 @@ ram: 16
 flash: 128
 toolchain:
   - zephyr
-  - gccarmemb
+  - gnuarmemb
+  - xtools
 testing:
   ignore_tags:
     - net
     - bluetooth
 supported:
   - adc
-  - i2c
-  - spi
+  - arduino_gpio
   - gpio
+  - i2c
+  - usb_device

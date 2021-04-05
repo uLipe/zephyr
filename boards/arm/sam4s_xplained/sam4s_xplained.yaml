@@ -4,4 +4,13 @@ type: mcu
 arch: arm
 toolchain:
   - zephyr
-  - gccarmemb
+  - gnuarmemb
+  - xtools
+supported:
+  - gpio
+  - spi
+  - watchdog
+  - xplained_gpio
+  - xplained_i2c
+  - xplained_serial
+  - xplained_spi

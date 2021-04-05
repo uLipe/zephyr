@@ -13,17 +13,17 @@ portable to both POSIX and Zephyr. As such, this HTTP server example is
 kept very minimal and does not really parse an incoming HTTP request,
 just reads and discards it, and always serve a single static page. Even
 with such simplification, it is useful as an example of a socket
-application which can be accessed via a convention web browser, or to
-perform performance/regression testing using existing HTTP testing
+application which can be accessed via a conventional web browser, or to
+perform performance/regression testing using existing HTTP diagnostic
 tools.
 
 The source code for this sample application can be found at:
-:file:`samples/net/sockets/dumb_http_server`.
+:zephyr_file:`samples/net/sockets/dumb_http_server`.
 
 Requirements
 ************
 
-- :ref:`networking_with_qemu`
+- :ref:`networking_with_host`
 - or, a board with hardware networking
 
 Building and Running
@@ -32,16 +32,10 @@ Building and Running
 Build the Zephyr version of the sockets/echo application like this:
 
 .. zephyr-app-commands::
-   :zephyr-app: samples/net/sockets/dump_http_server
+   :zephyr-app: samples/net/sockets/dumb_http_server
    :board: <board_to_use>
    :goals: build
    :compact:
-
-``board_to_use`` defaults to ``qemu_x86``. In this case, you can run the
-application in QEMU using ``make run``. If you used another BOARD, you
-will need to consult its documentation for application deployment
-instructions. You can read about Zephyr support for specific boards in
-the documentation at :ref:`boards`.
 
 After the sample starts, it expects connections at 192.0.2.1, port 8080.
 The easiest way to connect is by opening a following URL in a web
@@ -55,7 +49,7 @@ Alternatively, a tool like ``curl`` can be used:
     $ curl http://192.0.2.1:8080/
 
 Finally, you can run an HTTP profiling/load tool like Apache Bench
-(``ab``) against the server:
+(``ab``) against the server::
 
     $ ab -n10 http://192.0.2.1:8080/
 

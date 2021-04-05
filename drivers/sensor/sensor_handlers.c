@@ -4,30 +4,56 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <sensor.h>
+#include <drivers/sensor.h>
 #include <syscall_handler.h>
 
-_SYSCALL_HANDLER(sensor_attr_set, dev, chan, attr, val)
+static inline int z_vrfy_sensor_attr_set(const struct device *dev,
+					 enum sensor_channel chan,
+					 enum sensor_attribute attr,
+					 const struct sensor_value *val)
 {
-	_SYSCALL_OBJ(dev, K_OBJ_DRIVER_SENSOR);
-	_SYSCALL_MEMORY_READ(val, sizeof(struct sensor_value));
-	return _impl_sensor_attr_set((struct device *)dev, chan, attr,
-				     (const struct sensor_value *)val);
+	Z_OOPS(Z_SYSCALL_DRIVER_SENSOR(dev, attr_set));
+	Z_OOPS(Z_SYSCALL_MEMORY_READ(val, sizeof(struct sensor_value)));
+	return z_impl_sensor_attr_set((const struct device *)dev, chan, attr,
+				      (const struct sensor_value *)val);
 }
+#include <syscalls/sensor_attr_set_mrsh.c>
 
-_SYSCALL_HANDLER1_SIMPLE(sensor_sample_fetch, K_OBJ_DRIVER_SENSOR,
-			 struct device *);
-
-_SYSCALL_HANDLER(sensor_semple_fetch_chan, dev, type)
+static inline int z_vrfy_sensor_attr_get(const struct device *dev,
+					 enum sensor_channel chan,
+					 enum sensor_attribute attr,
+					 struct sensor_value *val)
 {
-	_SYSCALL_OBJ(dev, K_OBJ_DRIVER_SENSOR);
-	return _impl_sensor_sample_fetch_chan((struct device *)dev, type);
+	Z_OOPS(Z_SYSCALL_DRIVER_SENSOR(dev, attr_get));
+	Z_OOPS(Z_SYSCALL_MEMORY_WRITE(val, sizeof(struct sensor_value)));
+	return z_impl_sensor_attr_get((const struct device *)dev, chan, attr,
+				      (struct sensor_value *)val);
 }
+#include <syscalls/sensor_attr_get_mrsh.c>
 
-_SYSCALL_HANDLER(sensor_channel_get, dev, chan, val)
+static inline int z_vrfy_sensor_sample_fetch(const struct device *dev)
 {
-	_SYSCALL_OBJ(dev, K_OBJ_DRIVER_SENSOR);
-	_SYSCALL_MEMORY_WRITE(val, sizeof(struct sensor_value));
-	return _impl_sensor_channel_get((struct device *)dev, chan,
-					(struct sensor_value *)val);
+	Z_OOPS(Z_SYSCALL_DRIVER_SENSOR(dev, sample_fetch));
+	return z_impl_sensor_sample_fetch((const struct device *)dev);
 }
+#include <syscalls/sensor_sample_fetch_mrsh.c>
+
+static inline int z_vrfy_sensor_sample_fetch_chan(const struct device *dev,
+						  enum sensor_channel type)
+{
+	Z_OOPS(Z_SYSCALL_DRIVER_SENSOR(dev, sample_fetch));
+	return z_impl_sensor_sample_fetch_chan((const struct device *)dev,
+					       type);
+}
+#include <syscalls/sensor_sample_fetch_chan_mrsh.c>
+
+static inline int z_vrfy_sensor_channel_get(const struct device *dev,
+					    enum sensor_channel chan,
+					    struct sensor_value *val)
+{
+	Z_OOPS(Z_SYSCALL_DRIVER_SENSOR(dev, channel_get));
+	Z_OOPS(Z_SYSCALL_MEMORY_WRITE(val, sizeof(struct sensor_value)));
+	return z_impl_sensor_channel_get((const struct device *)dev, chan,
+					 (struct sensor_value *)val);
+}
+#include <syscalls/sensor_channel_get_mrsh.c>

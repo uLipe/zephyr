@@ -1,30 +1,10 @@
----
-title: Nordic UART
-id: nordic,nrf-uart
-version: 0.1
+description: |
+  Nordic nRF family UART.
 
-description: >
-    This binding gives a base representation of the Nordic UART
+  This is the binding for the peripheral without EasyDMA support.
+  See the "nordic,nrf-uarte" binding for UARTE, i.e. UART with
+  EasyDMA.
 
-inherits:
-    !include uart.yaml
+compatible: "nordic,nrf-uart"
 
-properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "nordic,nrf-uart"
-
-    reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
-
-    interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
-...
+include: nordic,nrf-uart-common.yaml

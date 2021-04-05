@@ -6,14 +6,13 @@
 
 /*
  * Copyright (c) 2017 Intel Corporation
+ * Copyright (c) 2020 Friedt Professional Engineering Services, Inc
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#if defined(CONFIG_NET_DEBUG_MDNS_RESPONDER)
-#define SYS_LOG_DOMAIN "mdns"
-#define NET_LOG_ENABLED 1
-#endif
+#include <logging/log.h>
+LOG_MODULE_REGISTER(net_mdns_responder, CONFIG_MDNS_RESPONDER_LOG_LEVEL);
 
 #include <zephyr.h>
 #include <init.h>
@@ -22,10 +21,12 @@
 #include <errno.h>
 #include <stdlib.h>
 
+#include <net/net_core.h>
 #include <net/net_ip.h>
 #include <net/net_pkt.h>
 #include <net/dns_resolve.h>
 
+#include "dns_sd.h"
 #include "dns_pack.h"
 #include "ipv6.h"
 
@@ -35,21 +36,24 @@
 
 #define MDNS_TTL CONFIG_MDNS_RESPONDER_TTL /* In seconds */
 
+#if defined(CONFIG_NET_IPV4)
 static struct net_context *ipv4;
+#endif
+#if defined(CONFIG_NET_IPV6)
 static struct net_context *ipv6;
+#endif
 
-#define BUF_ALLOC_TIMEOUT MSEC(100)
+#define BUF_ALLOC_TIMEOUT K_MSEC(100)
 
 /* This value is recommended by RFC 1035 */
 #define DNS_RESOLVER_MAX_BUF_SIZE	512
-#define DNS_RESOLVER_MIN_BUF		1
+#define DNS_RESOLVER_MIN_BUF		2
 #define DNS_RESOLVER_BUF_CTR	(DNS_RESOLVER_MIN_BUF + \
 				 CONFIG_MDNS_RESOLVER_ADDITIONAL_BUF_CTR)
 
-NET_BUF_POOL_DEFINE(dns_msg_pool, DNS_RESOLVER_BUF_CTR,
+NET_BUF_POOL_DEFINE(mdns_msg_pool, DNS_RESOLVER_BUF_CTR,
 		    DNS_RESOLVER_MAX_BUF_SIZE, 0, NULL);
 
-#if defined(CONFIG_NET_IPV6)
 static void create_ipv6_addr(struct sockaddr_in6 *addr)
 {
 	addr->sin6_family = AF_INET6;
@@ -59,9 +63,7 @@ static void create_ipv6_addr(struct sockaddr_in6 *addr)
 	net_ipv6_addr_create(&addr->sin6_addr,
 			     0xff02, 0, 0, 0, 0, 0, 0, 0x00fb);
 }
-#endif
 
-#if defined(CONFIG_NET_IPV4)
 static void create_ipv4_addr(struct sockaddr_in *addr)
 {
 	addr->sin_family = AF_INET;
@@ -70,7 +72,6 @@ static void create_ipv4_addr(struct sockaddr_in *addr)
 	/* Well known IPv4 224.0.0.251 address */
 	addr->sin_addr.s_addr = htonl(0xE00000FB);
 }
-#endif
 
 static struct net_context *get_ctx(sa_family_t family)
 {
@@ -107,29 +108,40 @@ static int bind_ctx(struct net_context *ctx,
 	return ret;
 }
 
-static void setup_dns_hdr(struct net_pkt *pkt, u16_t answers)
+static void setup_dns_hdr(uint8_t *buf, uint16_t answers)
 {
-	u16_t flags;
+	uint16_t offset;
+	uint16_t flags;
 
 	/* See RFC 1035, ch 4.1.1 for header details */
 
 	flags = BIT(15);  /* This is response */
 	flags |= BIT(10); /* Authoritative Answer */
 
-	net_pkt_append_be16(pkt, 0);       /* Identifier, RFC 6762 ch 18.1 */
-	net_pkt_append_be16(pkt, flags);   /* Flags and codes */
-	net_pkt_append_be16(pkt, 0);       /* Question count */
-	net_pkt_append_be16(pkt, answers); /* Answer RR count */
-	net_pkt_append_be16(pkt, 0);       /* Authority RR count */
-	net_pkt_append_be16(pkt, 0);       /* Additional RR count */
+	UNALIGNED_PUT(0, (uint16_t *)(buf)); /* Identifier, RFC 6762 ch 18.1 */
+	offset = DNS_HEADER_ID_LEN;
+
+	UNALIGNED_PUT(htons(flags), (uint16_t *)(buf+offset));
+	offset += DNS_HEADER_FLAGS_LEN;
+
+	UNALIGNED_PUT(0, (uint16_t *)(buf + offset));
+	offset += DNS_QDCOUNT_LEN;
+
+	UNALIGNED_PUT(htons(answers), (uint16_t *)(buf + offset));
+	offset += DNS_ANCOUNT_LEN;
+
+	UNALIGNED_PUT(0, (uint16_t *)(buf + offset));
+	offset += DNS_NSCOUNT_LEN;
+
+	UNALIGNED_PUT(0, (uint16_t *)(buf + offset));
 }
 
-static int add_answer(struct net_pkt *pkt, enum dns_rr_type qtype,
-		      struct net_buf *query, u32_t ttl,
-		      u16_t addr_len, u8_t *addr)
+static void add_answer(struct net_buf *query, enum dns_rr_type qtype,
+		       uint32_t ttl, uint16_t addr_len, uint8_t *addr)
 {
-	char *dot = query->data;
+	char *dot = query->data + DNS_MSG_HEADER_SIZE;
 	char *prev = NULL;
+	uint16_t offset;
 
 	while ((dot = strchr(dot, '.'))) {
 		if (!prev) {
@@ -145,75 +157,83 @@ static int add_answer(struct net_pkt *pkt, enum dns_rr_type qtype,
 		*prev = strlen(prev) - 1;
 	}
 
-	if (!net_pkt_append_all(pkt, query->len + 1, query->data,
-				BUF_ALLOC_TIMEOUT)) {
-		return -ENOMEM;
-	}
+	/* terminator byte (0x00) */
+	query->len += 1;
 
-	net_pkt_append_be16(pkt, qtype);
+	offset = DNS_MSG_HEADER_SIZE + query->len;
+	UNALIGNED_PUT(htons(qtype), (uint16_t *)(query->data+offset));
 
 	/* Bit 15 tells to flush the cache */
-	net_pkt_append_be16(pkt, DNS_CLASS_IN | BIT(15));
+	offset += DNS_QTYPE_LEN;
+	UNALIGNED_PUT(htons(DNS_CLASS_IN | BIT(15)),
+		      (uint16_t *)(query->data+offset));
 
-	net_pkt_append_be32(pkt, ttl);
-	net_pkt_append_be16(pkt, addr_len);
 
-	if (!net_pkt_append_all(pkt, addr_len, addr,
-				BUF_ALLOC_TIMEOUT)) {
-		return -ENOMEM;
+	offset += DNS_QCLASS_LEN;
+	UNALIGNED_PUT(htonl(ttl), query->data + offset);
+
+	offset += DNS_TTL_LEN;
+	UNALIGNED_PUT(htons(addr_len), query->data + offset);
+
+	offset += DNS_RDLENGTH_LEN;
+	memcpy(query->data + offset, addr, addr_len);
+}
+
+static int create_answer(struct net_context *ctx,
+			 struct net_buf *query,
+			 enum dns_rr_type qtype,
+			 uint16_t addr_len, uint8_t *addr)
+{
+	/* Prepare the response into the query buffer: move the name
+	 * query buffer has to get enough free space: dns_hdr + answer
+	 */
+	if ((query->size - query->len) < (DNS_MSG_HEADER_SIZE +
+					  DNS_QTYPE_LEN + DNS_QCLASS_LEN +
+					  DNS_TTL_LEN + DNS_RDLENGTH_LEN +
+					  addr_len)) {
+		return -ENOBUFS;
 	}
+
+	memmove(query->data + DNS_MSG_HEADER_SIZE, query->data, query->len);
+
+	setup_dns_hdr(query->data, 1);
+
+	add_answer(query, qtype, MDNS_TTL, addr_len, addr);
+
+	query->len += DNS_MSG_HEADER_SIZE +
+		DNS_QTYPE_LEN + DNS_QCLASS_LEN +
+		DNS_TTL_LEN + DNS_RDLENGTH_LEN + addr_len;
 
 	return 0;
 }
 
-static struct net_pkt *create_answer(struct net_context *ctx,
-				     sa_family_t family,
-				     enum dns_rr_type qtype,
-				     struct net_buf *query,
-				     u16_t addr_len, u8_t *addr)
-{
-	struct net_pkt *pkt;
-
-	pkt = net_pkt_get_tx(ctx, BUF_ALLOC_TIMEOUT);
-	if (!pkt) {
-		return NULL;
-	}
-
-	net_pkt_set_family(pkt, family);
-
-	setup_dns_hdr(pkt, 1);
-
-	add_answer(pkt, qtype, query, MDNS_TTL, addr_len, addr);
-
-	return pkt;
-}
-
-static int send_response(struct net_context *ctx, struct net_pkt *pkt,
+static int send_response(struct net_context *ctx,
+			 struct net_pkt *pkt,
+			 union net_ip_header *ip_hdr,
 			 struct net_buf *query,
 			 enum dns_rr_type qtype)
 {
-	struct net_pkt *reply;
 	struct sockaddr dst;
 	socklen_t dst_len;
 	int ret;
 
 	if (qtype == DNS_RR_TYPE_A) {
 #if defined(CONFIG_NET_IPV4)
-		struct in_addr *addr;
+		const struct in_addr *addr;
 
-		/* For IPv4 we take the first address in the interface */
-		addr = &net_pkt_iface(pkt)->ipv4.unicast[0].address.in_addr;
+		addr = net_if_ipv4_select_src_addr(net_pkt_iface(pkt),
+						   &ip_hdr->ipv4->src);
 
 		create_ipv4_addr(net_sin(&dst));
 		dst_len = sizeof(struct sockaddr_in);
 
-		reply = create_answer(ctx, AF_INET, qtype, query,
-				      sizeof(struct in_addr), (u8_t *)addr);
-		if (!reply) {
-			return -ENOMEM;
+		ret = create_answer(ctx, query, qtype,
+				      sizeof(struct in_addr), (uint8_t *)addr);
+		if (ret != 0) {
+			return ret;
 		}
 
-		net_pkt_set_ipv4_ttl(reply, 255);
+		net_context_set_ipv4_ttl(ctx, 255);
 #else /* CONFIG_NET_IPV4 */
 		return -EPFNOSUPPORT;
 #endif /* CONFIG_NET_IPV4 */
@@ -223,18 +243,18 @@ static int send_response(struct net_context *ctx, struct net_pkt *pkt,
 		const struct in6_addr *addr;
 
 		addr = net_if_ipv6_select_src_addr(net_pkt_iface(pkt),
-						   &NET_IPV6_HDR(pkt)->src);
+						   &ip_hdr->ipv6->src);
 
 		create_ipv6_addr(net_sin6(&dst));
 		dst_len = sizeof(struct sockaddr_in6);
 
-		reply = create_answer(ctx, AF_INET6, qtype, query,
-				      sizeof(struct in6_addr), (u8_t *)addr);
-		if (!reply) {
+		ret = create_answer(ctx, query, qtype,
+				      sizeof(struct in6_addr), (uint8_t *)addr);
+		if (ret != 0) {
 			return -ENOMEM;
 		}
 
-		net_pkt_set_ipv6_hop_limit(reply, 255);
+		net_context_set_ipv6_hop_limit(ctx, 255);
 #else /* CONFIG_NET_IPV6 */
 		return -EPFNOSUPPORT;
 #endif /* CONFIG_NET_IPV6 */
@@ -244,18 +264,104 @@ static int send_response(struct net_context *ctx, struct net_pkt *pkt,
 		return -EINVAL;
 	}
 
-	ret = net_context_sendto(reply, &dst, dst_len, NULL, K_NO_WAIT,
-				 NULL, NULL);
+	ret = net_context_sendto(ctx, query->data, query->len, &dst,
+				 dst_len, NULL, K_NO_WAIT, NULL);
 	if (ret < 0) {
 		NET_DBG("Cannot send mDNS reply (%d)", ret);
-		net_pkt_unref(reply);
 	}
 
 	return ret;
 }
 
+static const char *qtype_to_string(int qtype)
+{
+	switch (qtype) {
+	case DNS_RR_TYPE_A: return "A";
+	case DNS_RR_TYPE_CNAME: return "CNAME";
+	case DNS_RR_TYPE_PTR: return "PTR";
+	case DNS_RR_TYPE_TXT: return "TXT";
+	case DNS_RR_TYPE_AAAA: return "AAAA";
+	case DNS_RR_TYPE_SRV: return "SRV";
+	default: return "<unknown type>";
+	}
+}
+
+static void send_sd_response(struct net_context *ctx,
+		 struct net_pkt *pkt, union net_ip_header *ip_hdr,
+		 struct dns_msg_t *dns_msg, struct net_buf *result)
+{
+	int ret;
+	const struct dns_sd_rec *record;
+	struct dns_sd_rec filter;
+	struct sockaddr dst;
+	const struct in6_addr *addr6 = NULL;
+	const struct in_addr *addr4 = NULL;
+	char service_buf[DNS_SD_SERVICE_MAX_SIZE + 1];
+	char proto_buf[DNS_SD_PROTO_SIZE + 1];
+	char domain_buf[DNS_SD_DOMAIN_MAX_SIZE + 1];
+
+	/* This actually is used but the compiler doesn't see that */
+	ARG_UNUSED(record);
+
+	if (IS_ENABLED(CONFIG_NET_IPV4)) {
+		/* Look up the local IPv4 address */
+		addr4 = net_if_ipv4_select_src_addr(net_pkt_iface(pkt),
+					   &ip_hdr->ipv4->src);
+		create_ipv4_addr(net_sin(&dst));
+		net_context_set_ipv4_ttl(ctx, 255);
+	}
+
+	if (IS_ENABLED(CONFIG_NET_IPV6)) {
+		/* Look up the local IPv6 address */
+		addr6 = net_if_ipv6_select_src_addr(net_pkt_iface(pkt),
+					   &ip_hdr->ipv6->src);
+		create_ipv6_addr(net_sin6(&dst));
+		net_context_set_ipv6_hop_limit(ctx, 255);
+	}
+
+	ret = dns_sd_extract_service_proto_domain(dns_msg->msg,
+		dns_msg->msg_size, &filter, service_buf, sizeof(service_buf),
+		proto_buf, sizeof(proto_buf), domain_buf, sizeof(domain_buf));
+	if (ret < 0) {
+		NET_DBG("unable to extract service.proto.domain (%d)", ret);
+		return;
+	}
+
+	DNS_SD_FOREACH(record) {
+		/* Checks validity and then compare */
+		if (dns_sd_rec_match(record, &filter)) {
+			NET_DBG("matched query: %s.%s.%s.%s port: %u",
+				record->instance, record->service,
+				record->proto, record->domain,
+				ntohs(*(record->port)));
+
+			/* Construct the response */
+			ret = dns_sd_handle_ptr_query(record,
+				addr4, addr6,
+				result->data, result->size);
+			if (ret < 0) {
+				NET_DBG("dns_sd_handle_ptr_query() failed (%d)",
+					ret);
+				continue;
+			}
+
+			result->len = ret;
+
+			/* Send the response */
+			ret = net_context_sendto(ctx, result->data,
+				result->len, &dst, sizeof(dst), NULL,
+				K_NO_WAIT, NULL);
+			if (ret < 0) {
+				NET_DBG("Cannot send mDNS reply (%d)", ret);
+				continue;
+			}
+		}
+	}
+}
+
 static int dns_read(struct net_context *ctx,
 		    struct net_pkt *pkt,
+		    union net_ip_header *ip_hdr,
 		    struct net_buf *dns_data,
 		    struct dns_addrinfo *info)
 {
@@ -266,18 +372,14 @@ static int dns_read(struct net_context *ctx,
 	struct dns_msg_t dns_msg;
 	int data_len;
 	int queries;
-	int offset;
 	int ret;
 
-	data_len = min(net_pkt_appdatalen(pkt), DNS_RESOLVER_MAX_BUF_SIZE);
-	offset = net_pkt_get_len(pkt) - data_len;
+	data_len = MIN(net_pkt_remaining_data(pkt), DNS_RESOLVER_MAX_BUF_SIZE);
 
-	/* Store the DNS query name into a temporary net_buf. This means
-	 * that largest name we can resolve is CONFIG_NET_BUF_DATA_SIZE
-	 * which typically is 128 bytes. This is done using net_buf so that
-	 * we do not increase the stack usage of RX thread.
+	/* Store the DNS query name into a temporary net_buf, which will be
+	 * enventually used to send a response
 	 */
-	result = net_pkt_get_data(ctx, BUF_ALLOC_TIMEOUT);
+	result = net_buf_alloc(&mdns_msg_pool, BUF_ALLOC_TIMEOUT);
 	if (!result) {
 		ret = -ENOMEM;
 		goto quit;
@@ -285,7 +387,7 @@ static int dns_read(struct net_context *ctx,
 
 	/* TODO: Instead of this temporary copy, just use the net_pkt directly.
 	 */
-	ret = net_frag_linear_copy(dns_data, pkt->frags, offset, data_len);
+	ret = net_pkt_read(pkt, dns_data->data, data_len);
 	if (ret < 0) {
 		goto quit;
 	}
@@ -304,16 +406,16 @@ static int dns_read(struct net_context *ctx,
 	NET_DBG("Received %d %s from %s", queries,
 		queries > 1 ? "queries" : "query",
 		net_pkt_family(pkt) == AF_INET ?
-		net_sprint_ipv4_addr(&NET_IPV4_HDR(pkt)->src) :
-		net_sprint_ipv6_addr(&NET_IPV6_HDR(pkt)->src));
+		log_strdup(net_sprint_ipv4_addr(&NET_IPV4_HDR(pkt)->src)) :
+		log_strdup(net_sprint_ipv6_addr(&NET_IPV6_HDR(pkt)->src)));
 
 	do {
 		enum dns_rr_type qtype;
 		enum dns_class qclass;
-		u8_t *lquery;
+		uint8_t *lquery;
 
-		memset(result->data, 0, net_buf_tailroom(result));
-		result->len = 0;
+		(void)memset(result->data, 0, net_buf_tailroom(result));
+		result->len = 0U;
 
 		ret = dns_unpack_query(&dns_msg, result, &qtype, &qclass);
 		if (ret < 0) {
@@ -327,8 +429,8 @@ static int dns_read(struct net_context *ctx,
 		}
 
 		NET_DBG("[%d] query %s/%s label %s (%d bytes)", queries,
-			qtype == DNS_RR_TYPE_A ? "A" : "AAAA", "IN",
-			result->data, ret);
+			qtype_to_string(qtype), "IN",
+			log_strdup(result->data), ret);
 
 		/* If the query matches to our hostname, then send reply.
 		 * We skip the first dot, and make sure there is dot after
@@ -339,15 +441,19 @@ static int dns_read(struct net_context *ctx,
 		    &(result->data + 1)[hostname_len] == lquery) {
 			NET_DBG("mDNS query to our hostname %s.local",
 				hostname);
-			send_response(ctx, pkt, result, qtype);
+			send_response(ctx, pkt, ip_hdr, result, qtype);
+		} else if (IS_ENABLED(CONFIG_MDNS_RESPONDER_DNS_SD)
+			&& qtype == DNS_RR_TYPE_PTR) {
+			send_sd_response(ctx, pkt, ip_hdr, &dns_msg, result);
 		}
+
 	} while (--queries);
 
 	ret = 0;
 
 quit:
 	if (result) {
-		net_pkt_frag_unref(result);
+		net_buf_unref(result);
 	}
 
 	return ret;
@@ -355,6 +461,8 @@ quit:
 
 static void recv_cb(struct net_context *net_ctx,
 		    struct net_pkt *pkt,
+		    union net_ip_header *ip_hdr,
+		    union net_proto_header *proto_hdr,
 		    int status,
 		    void *user_data)
 {
@@ -374,12 +482,12 @@ static void recv_cb(struct net_context *net_ctx,
 		goto quit;
 	}
 
-	dns_data = net_buf_alloc(&dns_msg_pool, BUF_ALLOC_TIMEOUT);
+	dns_data = net_buf_alloc(&mdns_msg_pool, BUF_ALLOC_TIMEOUT);
 	if (!dns_data) {
 		goto quit;
 	}
 
-	ret = dns_read(ctx, pkt, dns_data, &info);
+	ret = dns_read(ctx, pkt, ip_hdr, dns_data, &info);
 	if (ret < 0 && ret != -EINVAL) {
 		NET_DBG("mDNS read failed (%d)", ret);
 	}
@@ -399,7 +507,7 @@ static void iface_ipv6_cb(struct net_if *iface, void *user_data)
 	ret = net_ipv6_mld_join(iface, addr);
 	if (ret < 0) {
 		NET_DBG("Cannot join %s IPv6 multicast group (%d)",
-			net_sprint_ipv6_addr(addr), ret);
+			log_strdup(net_sprint_ipv6_addr(addr)), ret);
 	}
 }
 
@@ -495,9 +603,9 @@ ipv4_out:
 	return !ok;
 }
 
-static int mdns_responder_init(struct device *device)
+static int mdns_responder_init(const struct device *dev)
 {
-	ARG_UNUSED(device);
+	ARG_UNUSED(dev);
 
 	return init_listener();
 }

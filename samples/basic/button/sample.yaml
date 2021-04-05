@@ -1,8 +1,8 @@
 sample:
-  description: TBD
-  name: TBD
+  name: Button Sample
 tests:
-  - test:
-      build_only: true
-      platform_whitelist: nucleo_f103rb quark_se_c1000_devboard
-      tags: samples
+  sample.basic.button:
+    tags: button gpio
+    filter: dt_enabled_alias_with_parent_compat("sw0", "gpio-keys")
+    depends_on: gpio
+    harness: button

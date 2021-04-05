@@ -8,13 +8,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_LSM6DSL_H__
-#define __SENSOR_LSM6DSL_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_LSM6DSL_LSM6DSL_H_
+#define ZEPHYR_DRIVERS_SENSOR_LSM6DSL_LSM6DSL_H_
 
+#include <drivers/sensor.h>
 #include <zephyr/types.h>
-#include <i2c.h>
-#include <misc/util.h>
+#include <drivers/gpio.h>
+#include <sys/util.h>
 
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
+#include <drivers/spi.h>
+#endif /* DT_ANY_INST_ON_BUS_STATUS_OKAY(spi) */
+
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
+#include <drivers/i2c.h>
+#endif /* DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c) */
 
 #define LSM6DSL_REG_FUNC_CFG_ACCESS			0x01
 #define LSM6DSL_MASK_FUNC_CFG_EN			BIT(7)
@@ -70,8 +78,8 @@
 #define LSM6DSL_SHIFT_FIFO_CTRL4_DEC_DS3_FIFO		0
 
 #define LSM6DSL_REG_FIFO_CTRL5				0x0A
-#define LSM6DSL_MASK_FIFO_CTRL5_ODR_FIFO		(BIT(5) | BIT(4) | \
-							 BIT(3))
+#define LSM6DSL_MASK_FIFO_CTRL5_ODR_FIFO		(BIT(6) | BIT(5) | \
+							 BIT(4) | BIT(3))
 #define LSM6DSL_SHIFT_FIFO_CTRL5_ODR_FIFO		3
 #define LSM6DSL_MASK_FIFO_CTRL5_FIFO_MODE		(BIT(2) | BIT(1) | \
 							 BIT(0))
@@ -158,24 +166,6 @@
 #define LSM6DSL_MASK_CTRL3_C_SW_RESET			BIT(0)
 #define LSM6DSL_SHIFT_CTRL3_C_SW_RESET			0
 
-#define LSM6DSL_REG_CTRL3_C				0x12
-#define LSM6DSL_MASK_CTRL3_C_BOOT			BIT(7)
-#define LSM6DSL_SHIFT_CTRL3_C_BOOT			7
-#define LSM6DSL_MASK_CTRL3_C_BDU			BIT(6)
-#define LSM6DSL_SHIFT_CTRL3_C_BDU			6
-#define LSM6DSL_MASK_CTRL3_C_H_LACTIVE			BIT(5)
-#define LSM6DSL_SHIFT_CTRL3_C_H_LACTIVE			5
-#define LSM6DSL_MASK_CTRL3_C_PP_OD			BIT(4)
-#define LSM6DSL_SHIFT_CTRL3_C_PP_OD			4
-#define LSM6DSL_MASK_CTRL3_C_SIM			BIT(3)
-#define LSM6DSL_SHIFT_CTRL3_C_SIM			3
-#define LSM6DSL_MASK_CTRL3_C_IF_INC			BIT(2)
-#define LSM6DSL_SHIFT_CTRL3_C_IF_INC			2
-#define LSM6DSL_MASK_CTRL3_C_BLE			BIT(1)
-#define LSM6DSL_SHIFT_CTRL3_C_BLE			1
-#define LSM6DSL_MASK_CTRL3_C_SW_RESET			BIT(0)
-#define LSM6DSL_SHIFT_CTRL3_C_SW_RESET			0
-
 #define LSM6DSL_REG_CTRL4_C				0x13
 #define LSM6DSL_MASK_CTRL4_C_DEN_XL_EN			BIT(7)
 #define LSM6DSL_SHIFT_CTRL4_C_DEN_XL_EN			7
@@ -203,7 +193,7 @@
 #define LSM6DSL_MASK_CTRL5_C_ST_XL			(BIT(1) | BIT(0))
 #define LSM6DSL_SHIFT_CTRL5_C_ST_XL			0
 
-#define LSM6DSL_REG_CTRL6_C				0x14
+#define LSM6DSL_REG_CTRL6_C				0x15
 #define LSM6DSL_MASK_CTRL6_C_TRIG_EN			BIT(7)
 #define LSM6DSL_SHIFT_CTRL6_C_TRIG_EN			7
 #define LSM6DSL_MASK_CTRL6_C_LVL_EN			BIT(6)
@@ -240,18 +230,6 @@
 #define LSM6DSL_SHIFT_CTRL8_HP_SLOPE_XL_EN		2
 #define LSM6DSL_MASK_CTRL8_LOW_PASS_ON_6D		BIT(0)
 #define LSM6DSL_SHIFT_CTRL8_LOW_PASS_ON_6D		0
-
-#define LSM6DSL_REG_CTRL9_XL				0x18
-#define LSM6DSL_MASK_CTRL9_XL_DEN_X			BIT(7)
-#define LSM6DSL_SHIFT_CTRL9_XL_DEN_X			7
-#define LSM6DSL_MASK_CTRL9_XL_DEN_Y			BIT(6)
-#define LSM6DSL_SHIFT_CTRL9_XL_DEN_Y			6
-#define LSM6DSL_MASK_CTRL9_XL_DEN_Z			BIT(5)
-#define LSM6DSL_SHIFT_CTRL9_XL_DEN_Z			5
-#define LSM6DSL_MASK_CTRL9_XL_DEN_G			BIT(4)
-#define LSM6DSL_SHIFT_CTRL9_XL_DEN_G			4
-#define LSM6DSL_MASK_CTRL9_XL_SOFT_EN			BIT(2)
-#define LSM6DSL_SHIFT_CTRL9_XL_SOFT_EN			2
 
 #define LSM6DSL_REG_CTRL9_XL				0x18
 #define LSM6DSL_MASK_CTRL9_XL_DEN_X			BIT(7)
@@ -583,130 +561,163 @@
 #define SENSOR_DEG2RAD_DOUBLE			(SENSOR_PI_DOUBLE / 180)
 #define SENSOR_G_DOUBLE				(SENSOR_G / 1000000.0)
 
-#if CONFIG_LSM6DSL_ACCEL_FULLSCALE == 2
-	#define LSM6DSL_ACCEL_FULLSCALE_2G
-#elif CONFIG_LSM6DSL_ACCEL_FULLSCALE == 4
-	#define LSM6DSL_ACCEL_FULLSCALE_4G
-#elif CONFIG_LSM6DSL_ACCEL_FULLSCALE == 8
-	#define LSM6DSL_ACCEL_FULLSCALE_8G
-#elif CONFIG_LSM6DSL_ACCEL_FULLSCALE == 16
-	#define LSM6DSL_ACCEL_FULLSCALE_16G
-#endif
-
-#if defined(LSM6DSL_ACCEL_FULLSCALE_2G)
+#if CONFIG_LSM6DSL_ACCEL_FS == 0
+	#define LSM6DSL_ACCEL_FS_RUNTIME 1
 	#define LSM6DSL_DEFAULT_ACCEL_FULLSCALE		0
 	#define LSM6DSL_DEFAULT_ACCEL_SENSITIVITY	SENSI_GRAIN_XL
-#elif defined(LSM6DSL_ACCEL_FULLSCALE_4G)
+#elif CONFIG_LSM6DSL_ACCEL_FS == 2
+	#define LSM6DSL_DEFAULT_ACCEL_FULLSCALE		0
+	#define LSM6DSL_DEFAULT_ACCEL_SENSITIVITY	SENSI_GRAIN_XL
+#elif CONFIG_LSM6DSL_ACCEL_FS == 4
 	#define LSM6DSL_DEFAULT_ACCEL_FULLSCALE		2
 	#define LSM6DSL_DEFAULT_ACCEL_SENSITIVITY	(2.0 * SENSI_GRAIN_XL)
-#elif defined(LSM6DSL_ACCEL_FULLSCALE_8G)
+#elif CONFIG_LSM6DSL_ACCEL_FS == 8
 	#define LSM6DSL_DEFAULT_ACCEL_FULLSCALE		3
 	#define LSM6DSL_DEFAULT_ACCEL_SENSITIVITY	(4.0 * SENSI_GRAIN_XL)
-#elif defined(LSM6DSL_ACCEL_FULLSCALE_16G)
-	#define LSM6DSL_DEFALUT_ACCEL_FULLSCALE		1
+#elif CONFIG_LSM6DSL_ACCEL_FS == 16
+	#define LSM6DSL_DEFAULT_ACCEL_FULLSCALE		1
 	#define LSM6DSL_DEFAULT_ACCEL_SENSITIVITY	(8.0 * SENSI_GRAIN_XL)
 #endif
 
-#if CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 0
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	0
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 2
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	11
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 13
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	1
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 26
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	2
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 52
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	3
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 104
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	4
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 208
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	5
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 416
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	6
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 833
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	7
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 1660
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	8
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 3330
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	9
-#elif CONFIG_LSM6DSL_ACCEL_SAMPLING_RATE == 6660
-	#define LSM6DSL_DEFAULT_ACCEL_SAMPLING_RATE	10
-#endif
-
-#if CONFIG_LSM6DSL_GYRO_FULLSCALE == 125
-	#define LSM6DSL_GYRO_FULLSCALE_125
-#elif CONFIG_LSM6DSL_GYRO_FULLSCALE == 245
-	#define LSM6DSL_GYRO_FULLSCALE_245
-#elif CONFIG_LSM6DSL_GYRO_FULLSCALE == 500
-	#define LSM6DSL_GYRO_FULLSCALE_500
-#elif CONFIG_LSM6DSL_GYRO_FULLSCALE == 1000
-	#define LSM6DSL_GYRO_FULLSCALE_1000
-#elif CONFIG_LSM6DSL_GYRO_FULLSCALE == 2000
-	#define LSM6DSL_GYRO_FULLSCALE_2000
-#endif
-
-#if defined(LSM6DSL_GYRO_FULLSCALE_125)
-	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		4
-	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	SENSI_GRAIN_G
-#elif defined(LSM6DSL_GYRO_FULLSCALE_245)
-	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		0
-	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(2.0 * SENSI_GRAIN_G)
-#elif defined(LSM6DSL_GYRO_FULLSCALE_500)
-	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		1
-	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(4.0 * SENSI_GRAIN_G)
-#elif defined(LSM6DSL_GYRO_FULLSCALE_1000)
-	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		2
-	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(8.0 * SENSI_GRAIN_G)
-#elif defined(LSM6DSL_GYRO_FULLSCALE_2000)
-	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		3
-	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(16.0 * SENSI_GRAIN_G)
+#if (CONFIG_LSM6DSL_ACCEL_ODR == 0)
+#define LSM6DSL_ACCEL_ODR_RUNTIME 1
 #endif
 
 #define GYRO_FULLSCALE_125 4
 
-#if CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 0
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	0
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 13
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	1
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 26
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	2
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 52
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	3
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 104
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	4
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 208
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	5
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 416
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	6
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 833
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	7
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 1660
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	8
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 3330
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	9
-#elif CONFIG_LSM6DSL_GYRO_SAMPLING_RATE == 6660
-	#define LSM6DSL_DEFAULT_GYRO_SAMPLING_RATE	10
+#if CONFIG_LSM6DSL_GYRO_FS == 0
+	#define LSM6DSL_GYRO_FS_RUNTIME 1
+	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		4
+	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	SENSI_GRAIN_G
+#elif CONFIG_LSM6DSL_GYRO_FS == 125
+	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		4
+	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	SENSI_GRAIN_G
+#elif CONFIG_LSM6DSL_GYRO_FS == 245
+	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		0
+	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(2.0 * SENSI_GRAIN_G)
+#elif CONFIG_LSM6DSL_GYRO_FS == 500
+	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		1
+	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(4.0 * SENSI_GRAIN_G)
+#elif CONFIG_LSM6DSL_GYRO_FS == 1000
+	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		2
+	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(8.0 * SENSI_GRAIN_G)
+#elif CONFIG_LSM6DSL_GYRO_FS == 2000
+	#define LSM6DSL_DEFAULT_GYRO_FULLSCALE		3
+	#define LSM6DSL_DEFAULT_GYRO_SENSITIVITY	(16.0 * SENSI_GRAIN_G)
 #endif
 
+
+#if (CONFIG_LSM6DSL_GYRO_ODR == 0)
+#define LSM6DSL_GYRO_ODR_RUNTIME 1
+#endif
+
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
+struct lsm6dsl_spi_cfg {
+	struct spi_config spi_conf;
+	const char *cs_gpios_label;
+};
+#endif /* DT_ANY_INST_ON_BUS_STATUS_OKAY(spi) */
+
+union lsm6dsl_bus_cfg {
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
+	uint16_t i2c_slv_addr;
+#endif
+
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
+	const struct lsm6dsl_spi_cfg *spi_cfg;
+#endif /* DT_ANY_INST_ON_BUS_STATUS_OKAY(spi) */
+};
+
 struct lsm6dsl_config {
-	char *i2c_master_dev_name;
-	u16_t i2c_slave_addr;
+	char *bus_name;
+	int (*bus_init)(const struct device *dev);
+	const union lsm6dsl_bus_cfg bus_cfg;
+#ifdef CONFIG_LSM6DSL_TRIGGER
+	char *irq_dev_name;
+	uint32_t irq_pin;
+	int irq_flags;
+#endif
+};
+
+struct lsm6dsl_data;
+
+struct lsm6dsl_transfer_function {
+	int (*read_data)(const struct device *dev, uint8_t reg_addr,
+			 uint8_t *value, uint8_t len);
+	int (*write_data)(const struct device *dev, uint8_t reg_addr,
+			  uint8_t *value, uint8_t len);
+	int (*read_reg)(const struct device *dev, uint8_t reg_addr,
+			uint8_t *value);
+	int (*update_reg)(const struct device *dev, uint8_t reg_addr,
+			  uint8_t mask, uint8_t value);
 };
 
 struct lsm6dsl_data {
-	struct device *i2c_master;
+	const struct device *bus;
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
+	struct spi_cs_control cs_ctrl;
+#endif /* DT_ANY_INST_ON_BUS_STATUS_OKAY(spi) */
+
 	int accel_sample_x;
 	int accel_sample_y;
 	int accel_sample_z;
+	float accel_sensitivity;
 	int gyro_sample_x;
 	int gyro_sample_y;
 	int gyro_sample_z;
+	float gyro_sensitivity;
 #if defined(CONFIG_LSM6DSL_ENABLE_TEMP)
 	int temp_sample;
 #endif
+#if defined(CONFIG_LSM6DSL_EXT0_LIS2MDL)
+	int magn_sample_x;
+	int magn_sample_y;
+	int magn_sample_z;
+	float magn_sensitivity;
+#endif
+#if defined(CONFIG_LSM6DSL_EXT0_LPS22HB)
+	int sample_press;
+	int sample_temp;
+#endif
+	const struct lsm6dsl_transfer_function *hw_tf;
+	uint16_t accel_freq;
+	uint8_t accel_fs;
+	uint16_t gyro_freq;
+	uint8_t gyro_fs;
+
+#ifdef CONFIG_LSM6DSL_TRIGGER
+	const struct device *dev;
+	const struct device *gpio;
+	struct gpio_callback gpio_cb;
+
+	struct sensor_trigger data_ready_trigger;
+	sensor_trigger_handler_t data_ready_handler;
+
+#if defined(CONFIG_LSM6DSL_TRIGGER_OWN_THREAD)
+	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_LSM6DSL_THREAD_STACK_SIZE);
+	struct k_thread thread;
+	struct k_sem gpio_sem;
+#elif defined(CONFIG_LSM6DSL_TRIGGER_GLOBAL_THREAD)
+	struct k_work work;
+#endif
+
+#endif /* CONFIG_LSM6DSL_TRIGGER */
 };
 
-#define SYS_LOG_DOMAIN "LSM6DSL"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_LSM6DSL_H__ */
+int lsm6dsl_spi_init(const struct device *dev);
+int lsm6dsl_i2c_init(const struct device *dev);
+#if defined(CONFIG_LSM6DSL_SENSORHUB)
+int lsm6dsl_shub_init_external_chip(const struct device *dev);
+int lsm6dsl_shub_read_external_chip(const struct device *dev, uint8_t *buf,
+				    uint8_t len);
+#endif
+
+#ifdef CONFIG_LSM6DSL_TRIGGER
+int lsm6dsl_trigger_set(const struct device *dev,
+			const struct sensor_trigger *trig,
+			sensor_trigger_handler_t handler);
+
+int lsm6dsl_init_interrupt(const struct device *dev);
+#endif
+
+#endif /* ZEPHYR_DRIVERS_SENSOR_LSM6DSL_LSM6DSL_H_ */

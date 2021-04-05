@@ -10,17 +10,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <logging/log.h>
+LOG_MODULE_REGISTER(net_test, LOG_LEVEL_DBG);
+
 #include <ztest.h>
 
 #include <net/net_if.h>
 #include <net/net_pkt.h>
-#include <net/net_l2.h>
-
-/* Net offloading support needs L2 defined here, otherwise there will
- * be a linking error as by default there is no L2 offloading driver
- * in Zephyr.
- */
-NET_L2_INIT(OFFLOAD_IP_L2, NULL, NULL, NULL, NULL);
+#include <net/dummy.h>
 
 static struct offload_context {
 	void *none;
@@ -28,19 +25,18 @@ static struct offload_context {
 	.none = NULL
 };
 
-static struct net_if_api offload_if_api = {
-	.init = NULL,
+static struct dummy_api offload_if_api = {
+	.iface_api.init = NULL,
 	.send = NULL,
 };
 
-NET_DEVICE_INIT(net_offload, "net_offload",
-		NULL,
-		&offload_context_data, NULL,
-		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
-		&offload_if_api, OFFLOAD_IP_L2,
-		NET_L2_GET_CTX_TYPE(OFFLOAD_IP_L2), 0);
+NET_DEVICE_OFFLOAD_INIT(net_offload, "net_offload",
+			NULL, device_pm_control_nop,
+			&offload_context_data, NULL,
+			CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
+			&offload_if_api, 0);
 
-static void ok(void)
+static void test_ok(void)
 {
 	zassert_true(true, "This test should never fail");
 }
@@ -48,7 +44,7 @@ static void ok(void)
 void test_main(void)
 {
 	ztest_test_suite(net_compile_all_test,
-			 ztest_unit_test(ok)
+			 ztest_unit_test(test_ok)
 			 );
 
 	ztest_run_test_suite(net_compile_all_test);

@@ -4,18 +4,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT espressif_esp32_i2c
+
 /* Include esp-idf headers first to avoid redefining BIT() macro */
 #include <soc/dport_reg.h>
 #include <soc/i2c_reg.h>
-#include <rom/gpio.h>
+#include <esp32/rom/gpio.h>
 #include <soc/gpio_sig_map.h>
 
 #include <soc.h>
 #include <errno.h>
-#include <gpio.h>
-#include <i2c.h>
-#include <misc/util.h>
+#include <drivers/gpio.h>
+#include <drivers/gpio/gpio_esp32.h>
+#include <drivers/i2c.h>
+#include <drivers/clock_control.h>
+#include <sys/util.h>
 #include <string.h>
+
+#define LOG_LEVEL CONFIG_I2C_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_REGISTER(i2c_esp32);
+
+#include "i2c-priv.h"
 
 /* Number of entries in hardware command queue */
 #define I2C_ESP32_NUM_CMDS 16
@@ -23,7 +33,7 @@
 #define I2C_ESP32_BUFFER_SIZE 32
 
 #define I2C_ESP32_TIMEOUT_MS 100
-#define I2C_ESP32_SPIN_THRESHOLD 10
+#define I2C_ESP32_SPIN_THRESHOLD 600
 #define I2C_ESP32_YIELD_THRESHOLD (I2C_ESP32_SPIN_THRESHOLD / 2)
 #define I2C_ESP32_TIMEOUT \
 	((I2C_ESP32_YIELD_THRESHOLD) + (I2C_ESP32_SPIN_THRESHOLD))
@@ -37,18 +47,18 @@ enum i2c_esp32_opcodes {
 };
 
 struct i2c_esp32_cmd {
-	u32_t num_bytes : 8;
-	u32_t ack_en : 1;
-	u32_t ack_exp : 1;
-	u32_t ack_val : 1;
-	u32_t opcode : 3;
-	u32_t reserved : 17;
-	u32_t done : 1;
+	uint32_t num_bytes : 8;
+	uint32_t ack_en : 1;
+	uint32_t ack_exp : 1;
+	uint32_t ack_val : 1;
+	uint32_t opcode : 3;
+	uint32_t reserved : 17;
+	uint32_t done : 1;
 };
 
 struct i2c_esp32_data {
-	u32_t dev_config;
-	u16_t address;
+	uint32_t dev_config;
+	uint16_t address;
 
 	struct k_sem fifo_sem;
 	struct k_sem transfer_sem;
@@ -60,6 +70,7 @@ struct i2c_esp32_config {
 	int index;
 
 	irq_connect_cb connect_irq;
+	const struct device *clock_dev;
 
 	const struct {
 		int sda_out;
@@ -73,10 +84,7 @@ struct i2c_esp32_config {
 		int sda;
 	} pins;
 
-	const struct {
-		int clk;
-		int rst;
-	} enable_bits;
+	const clock_control_subsys_t peripheral_id;
 
 	const struct {
 		bool tx_lsb_first;
@@ -88,49 +96,17 @@ struct i2c_esp32_config {
 		int line;
 	} irq;
 
-	const u32_t default_config;
+	const uint32_t default_config;
+	const uint32_t bitrate;
 };
-
-static inline void set_mask32(u32_t v, u32_t mem_addr)
-{
-	sys_write32(sys_read32(mem_addr) | v, mem_addr);
-}
-
-static inline void clear_mask32(u32_t v, u32_t mem_addr)
-{
-	sys_write32(sys_read32(mem_addr) & ~v, mem_addr);
-}
-
-static void i2c_esp32_enable_peripheral(const struct i2c_esp32_config *config)
-{
-	set_mask32(config->enable_bits.clk, DPORT_PERIP_CLK_EN_REG);
-	clear_mask32(config->enable_bits.rst, DPORT_PERIP_RST_EN_REG);
-}
-
-static const char *i2c_esp32_get_gpio_for_pin(int pin)
-{
-	if (pin < 32) {
-#if defined(CONFIG_GPIO_ESP32_0)
-		return CONFIG_GPIO_ESP32_0_NAME;
-#else
-		return NULL;
-#endif /* CONFIG_GPIO_ESP32_0 */
-	}
-
-#if defined(CONFIG_GPIO_ESP32_1)
-	return CONFIG_GPIO_ESP32_1_NAME;
-#else
-	return NULL;
-#endif /* CONFIG_GPIO_ESP32_1 */
-}
 
 static int i2c_esp32_configure_pins(int pin, int matrix_out, int matrix_in)
 {
-	const int pin_mode = GPIO_DIR_OUT |
-			     GPIO_DS_DISCONNECT_LOW |
-			     GPIO_PUD_PULL_UP;
-	const char *device_name = i2c_esp32_get_gpio_for_pin(pin);
-	struct device *gpio;
+	const int pin_mode = GPIO_OUTPUT_HIGH |
+			     GPIO_OPEN_DRAIN  |
+			     GPIO_PULL_UP;
+	const char *device_name = gpio_esp32_get_gpio_for_pin(pin);
+	const struct device *gpio;
 	int ret;
 
 	if (!device_name) {
@@ -146,66 +122,71 @@ static int i2c_esp32_configure_pins(int pin, int matrix_out, int matrix_in)
 		return ret;
 	}
 
-	ret = gpio_pin_write(gpio, pin, 1);
-	if (ret < 0) {
-		return ret;
-	}
-
 	esp32_rom_gpio_matrix_out(pin, matrix_out, false, false);
 	esp32_rom_gpio_matrix_in(pin, matrix_in, false);
 
 	return 0;
 }
 
-static int i2c_esp32_configure_speed(const struct i2c_esp32_config *config,
-				     u32_t speed)
+static int i2c_esp32_configure_speed(const struct device *dev,
+				     uint32_t speed)
 {
-	static const u32_t speed_to_freq_tbl[] = {
+	static const uint32_t speed_to_freq_tbl[] = {
 		[I2C_SPEED_STANDARD] = KHZ(100),
 		[I2C_SPEED_FAST] = KHZ(400),
 		[I2C_SPEED_FAST_PLUS] = MHZ(1),
 		[I2C_SPEED_HIGH] = 0,
 		[I2C_SPEED_ULTRA] = 0
 	};
-	u32_t freq_hz = speed_to_freq_tbl[speed];
-	u32_t period;
+
+	const struct i2c_esp32_config *config = dev->config;
+
+	uint32_t sys_clk_freq = 0;
+	uint32_t freq_hz = speed_to_freq_tbl[speed];
+	uint32_t period;
 
 	if (!freq_hz) {
 		return -ENOTSUP;
 	}
 
-	period = (APB_CLK_FREQ / freq_hz) / 2;
+	if (clock_control_get_rate(config->clock_dev,
+				   config->peripheral_id,
+				   &sys_clk_freq)) {
+		return -EINVAL;
+	}
 
-	set_mask32(period << I2C_SCL_LOW_PERIOD_S,
+	period = (sys_clk_freq / freq_hz);
+	period /= 2U; /* Set hold and setup times to 1/2th of period */
+
+	esp32_set_mask32(period << I2C_SCL_LOW_PERIOD_S,
 		   I2C_SCL_LOW_PERIOD_REG(config->index));
-	set_mask32(period << I2C_SCL_HIGH_PERIOD_S,
+	esp32_set_mask32(period << I2C_SCL_HIGH_PERIOD_S,
 		   I2C_SCL_HIGH_PERIOD_REG(config->index));
 
-	period /= 2; /* Set hold and setup times to 1/2th of period */
-	set_mask32(period << I2C_SCL_START_HOLD_TIME_S,
+	esp32_set_mask32(period << I2C_SCL_START_HOLD_TIME_S,
 		   I2C_SCL_START_HOLD_REG(config->index));
-	set_mask32(period << I2C_SCL_RSTART_SETUP_TIME_S,
+	esp32_set_mask32(period << I2C_SCL_RSTART_SETUP_TIME_S,
 		   I2C_SCL_RSTART_SETUP_REG(config->index));
-	set_mask32(period << I2C_SCL_STOP_HOLD_TIME_S,
+	esp32_set_mask32(period << I2C_SCL_STOP_HOLD_TIME_S,
 		   I2C_SCL_STOP_HOLD_REG(config->index));
-	set_mask32(period << I2C_SCL_STOP_SETUP_TIME_S,
+	esp32_set_mask32(period << I2C_SCL_STOP_SETUP_TIME_S,
 		   I2C_SCL_STOP_SETUP_REG(config->index));
 
-	period /= 2; /* Set sample and hold times to 1/4th of period */
-	set_mask32(period << I2C_SDA_HOLD_TIME_S,
+	period /= 2U; /* Set sample and hold times to 1/4th of period */
+	esp32_set_mask32(period << I2C_SDA_HOLD_TIME_S,
 		   I2C_SDA_HOLD_REG(config->index));
-	set_mask32(period << I2C_SDA_SAMPLE_TIME_S,
+	esp32_set_mask32(period << I2C_SDA_SAMPLE_TIME_S,
 		   I2C_SDA_SAMPLE_REG(config->index));
 
 	return 0;
 }
 
-static int i2c_esp32_configure(struct device *dev, u32_t dev_config)
+static int i2c_esp32_configure(const struct device *dev, uint32_t dev_config)
 {
-	const struct i2c_esp32_config *config = dev->config->config_info;
-	struct i2c_esp32_data *data = dev->driver_data;
-	int key = irq_lock();
-	u32_t v = 0;
+	const struct i2c_esp32_config *config = dev->config;
+	struct i2c_esp32_data *data = dev->data;
+	unsigned int key = irq_lock();
+	uint32_t v = 0U;
 	int ret;
 
 	ret = i2c_esp32_configure_pins(config->pins.scl,
@@ -222,7 +203,7 @@ static int i2c_esp32_configure(struct device *dev, u32_t dev_config)
 		return ret;
 	}
 
-	i2c_esp32_enable_peripheral(config);
+	clock_control_on(config->clock_dev, config->peripheral_id);
 
 	/* MSB or LSB first is configurable for both TX and RX */
 	if (config->mode.tx_lsb_first) {
@@ -237,7 +218,7 @@ static int i2c_esp32_configure(struct device *dev, u32_t dev_config)
 		v |= I2C_MS_MODE;
 		sys_write32(0, I2C_SLAVE_ADDR_REG(config->index));
 	} else {
-		u32_t addr = (data->address & I2C_SLAVE_ADDR_V);
+		uint32_t addr = (data->address & I2C_SLAVE_ADDR_V);
 
 		if (dev_config & I2C_ADDR_10_BITS) {
 			addr |= I2C_ADDR_10BIT_EN;
@@ -258,7 +239,7 @@ static int i2c_esp32_configure(struct device *dev, u32_t dev_config)
 	v |= I2C_CLK_EN;
 	sys_write32(v, I2C_CTR_REG(config->index));
 
-	ret = i2c_esp32_configure_speed(config, I2C_SPEED_GET(dev_config));
+	ret = i2c_esp32_configure_speed(dev, I2C_SPEED_GET(dev_config));
 	if (ret < 0) {
 		goto out;
 	}
@@ -286,11 +267,11 @@ out:
 
 static inline void i2c_esp32_reset_fifo(const struct i2c_esp32_config *config)
 {
-	u32_t reg = I2C_FIFO_CONF_REG(config->index);
+	uint32_t reg = I2C_FIFO_CONF_REG(config->index);
 
 	/* Writing 1 and then 0 to these bits will reset the I2C fifo */
-	set_mask32(I2C_TX_FIFO_RST | I2C_RX_FIFO_RST, reg);
-	clear_mask32(I2C_TX_FIFO_RST | I2C_RX_FIFO_RST, reg);
+	esp32_set_mask32(I2C_TX_FIFO_RST | I2C_RX_FIFO_RST, reg);
+	esp32_clear_mask32(I2C_TX_FIFO_RST | I2C_RX_FIFO_RST, reg);
 }
 
 static int i2c_esp32_spin_yield(int *counter)
@@ -308,15 +289,15 @@ static int i2c_esp32_spin_yield(int *counter)
 	return 0;
 }
 
-static int i2c_esp32_transmit(struct device *dev)
+static int i2c_esp32_transmit(const struct device *dev)
 {
-	const struct i2c_esp32_config *config = dev->config->config_info;
-	struct i2c_esp32_data *data = dev->driver_data;
-	u32_t status;
+	const struct i2c_esp32_config *config = dev->config;
+	struct i2c_esp32_data *data = dev->data;
+	uint32_t status;
 
 	/* Start transmission and wait for the ISR to give the semaphore */
 	sys_set_bit(I2C_CTR_REG(config->index), I2C_TRANS_START_S);
-	if (k_sem_take(&data->fifo_sem, I2C_ESP32_TIMEOUT_MS) < 0) {
+	if (k_sem_take(&data->fifo_sem, K_MSEC(I2C_ESP32_TIMEOUT_MS)) < 0) {
 		return -ETIMEDOUT;
 	}
 
@@ -331,10 +312,10 @@ static int i2c_esp32_transmit(struct device *dev)
 	return 0;
 }
 
-static int i2c_esp32_wait(struct device *dev,
+static int i2c_esp32_wait(const struct device *dev,
 			  volatile struct i2c_esp32_cmd *wait_cmd)
 {
-	const struct i2c_esp32_config *config = dev->config->config_info;
+	const struct i2c_esp32_config *config = dev->config;
 	int counter = 0;
 	int ret;
 
@@ -348,7 +329,7 @@ static int i2c_esp32_wait(struct device *dev,
 	}
 
 	/* Wait for I2C bus to finish its business */
-	while (sys_read32(I2C_INT_STATUS_REG(config->index)) & I2C_BUS_BUSY) {
+	while (sys_read32(I2C_SR_REG(config->index)) & I2C_BUS_BUSY) {
 		ret = i2c_esp32_spin_yield(&counter);
 		if (ret < 0) {
 			return ret;
@@ -358,7 +339,7 @@ static int i2c_esp32_wait(struct device *dev,
 	return 0;
 }
 
-static int i2c_esp32_transmit_wait(struct device *dev,
+static int i2c_esp32_transmit_wait(const struct device *dev,
 				   volatile struct i2c_esp32_cmd *wait_cmd)
 {
 	int ret;
@@ -372,14 +353,14 @@ static int i2c_esp32_transmit_wait(struct device *dev,
 }
 
 static volatile struct i2c_esp32_cmd *
-i2c_esp32_write_addr(struct device *dev,
+i2c_esp32_write_addr(const struct device *dev,
 		     volatile struct i2c_esp32_cmd *cmd,
 		     struct i2c_msg *msg,
-		     u16_t addr)
+		     uint16_t addr)
 {
-	const struct i2c_esp32_config *config = dev->config->config_info;
-	struct i2c_esp32_data *data = dev->driver_data;
-	u32_t addr_len = 1;
+	const struct i2c_esp32_config *config = dev->config;
+	struct i2c_esp32_data *data = dev->data;
+	uint32_t addr_len = 1U;
 
 	i2c_esp32_reset_fifo(config);
 
@@ -390,40 +371,40 @@ i2c_esp32_write_addr(struct device *dev,
 		addr_len++;
 	}
 
-	*cmd++ = (struct i2c_esp32_cmd) {
-		.opcode = I2C_ESP32_OP_WRITE,
-		.ack_en = true,
-		.num_bytes = addr_len,
-	};
-
-	msg->len += addr_len;
+	if ((msg->flags & I2C_MSG_RW_MASK) != I2C_MSG_WRITE) {
+		*cmd++ = (struct i2c_esp32_cmd) {
+			.opcode = I2C_ESP32_OP_WRITE,
+			.ack_en = true,
+			.num_bytes = addr_len,
+		};
+	} else {
+		msg->len += addr_len;
+	}
 
 	return cmd;
 }
 
-static int i2c_esp32_read_msg(struct device *dev, u16_t addr,
+static int i2c_esp32_read_msg(const struct device *dev, uint16_t addr,
 			      struct i2c_msg msg)
 {
-	const struct i2c_esp32_config *config = dev->config->config_info;
+	const struct i2c_esp32_config *config = dev->config;
 	volatile struct i2c_esp32_cmd *cmd =
 		(void *)I2C_COMD0_REG(config->index);
-	u32_t i;
+	uint32_t i;
 	int ret;
 
 	/* Set the R/W bit to R */
 	addr |= BIT(0);
 
-	if (msg.flags & I2C_MSG_RESTART) {
-		*cmd++ = (struct i2c_esp32_cmd) {
-			.opcode = I2C_ESP32_OP_RSTART
-		};
-	}
+	*cmd++ = (struct i2c_esp32_cmd) {
+		.opcode = I2C_ESP32_OP_RSTART
+	};
 
 	cmd = i2c_esp32_write_addr(dev, cmd, &msg, addr);
 
 	for (; msg.len; cmd = (void *)I2C_COMD0_REG(config->index)) {
 		volatile struct i2c_esp32_cmd *wait_cmd = NULL;
-		u32_t to_read = max(I2C_ESP32_BUFFER_SIZE, msg.len - 1);
+		uint32_t to_read = MIN(I2C_ESP32_BUFFER_SIZE, msg.len - 1);
 
 		/* Might be the last byte, in which case, `to_read` will
 		 * be 0 here.  See comment below.
@@ -439,7 +420,7 @@ static int i2c_esp32_read_msg(struct device *dev, u16_t addr,
 		 * slave device.  Divide the read command in two segments as
 		 * recommended by the ESP32 Technical Reference Manual.
 		 */
-		if (msg.len - to_read <= 1) {
+		if (msg.len - to_read <= 1U) {
 			/* Read the last byte and explicitly ask for an
 			 * acknowledgment.
 			 */
@@ -472,8 +453,8 @@ static int i2c_esp32_read_msg(struct device *dev, u16_t addr,
 			return ret;
 		}
 
-		for (i = 0; i < to_read; i++) {
-			u32_t v = sys_read32(I2C_DATA_APB_REG(config->index));
+		for (i = 0U; i < to_read; i++) {
+			uint32_t v = sys_read32(I2C_DATA_APB_REG(config->index));
 
 			*msg.buf++ = v & I2C_FIFO_RDATA;
 		}
@@ -485,29 +466,26 @@ static int i2c_esp32_read_msg(struct device *dev, u16_t addr,
 	return 0;
 }
 
-static int i2c_esp32_write_msg(struct device *dev, u16_t addr,
+static int i2c_esp32_write_msg(const struct device *dev, uint16_t addr,
 			       struct i2c_msg msg)
 {
-	const struct i2c_esp32_config *config = dev->config->config_info;
+	const struct i2c_esp32_config *config = dev->config;
 	volatile struct i2c_esp32_cmd *cmd =
 		(void *)I2C_COMD0_REG(config->index);
 
-	if (msg.flags & I2C_MSG_RESTART) {
-		*cmd++ = (struct i2c_esp32_cmd) {
-			.opcode = I2C_ESP32_OP_RSTART
-		};
-	}
+	*cmd++ = (struct i2c_esp32_cmd) {
+		.opcode = I2C_ESP32_OP_RSTART
+	};
 
 	cmd = i2c_esp32_write_addr(dev, cmd, &msg, addr);
 
 	for (; msg.len; cmd = (void *)I2C_COMD0_REG(config->index)) {
-		volatile struct i2c_esp32_cmd *wait_cmd = cmd;
-		u32_t to_send = min(I2C_ESP32_BUFFER_SIZE, msg.len);
-		u32_t i;
+		uint32_t to_send = MIN(I2C_ESP32_BUFFER_SIZE, msg.len);
+		uint32_t i;
 		int ret;
 
 		/* Copy data to TX fifo */
-		for (i = 0; i < to_send; i++) {
+		for (i = 0U; i < to_send; i++) {
 			sys_write32(*msg.buf++,
 				    I2C_DATA_APB_REG(config->index));
 		}
@@ -519,15 +497,16 @@ static int i2c_esp32_write_msg(struct device *dev, u16_t addr,
 		msg.len -= to_send;
 
 		if (!msg.len && (msg.flags & I2C_MSG_STOP)) {
-			*cmd++ = (struct i2c_esp32_cmd) {
+			*cmd = (struct i2c_esp32_cmd) {
 				.opcode = I2C_ESP32_OP_STOP
 			};
+		} else {
+			*cmd = (struct i2c_esp32_cmd) {
+				.opcode = I2C_ESP32_OP_END
+			};
 		}
-		*cmd++ = (struct i2c_esp32_cmd) {
-			.opcode = I2C_ESP32_OP_END
-		};
 
-		ret = i2c_esp32_transmit_wait(dev, wait_cmd);
+		ret = i2c_esp32_transmit_wait(dev, cmd);
 		if (ret < 0) {
 			return ret;
 		}
@@ -538,12 +517,12 @@ static int i2c_esp32_write_msg(struct device *dev, u16_t addr,
 	return 0;
 }
 
-static int i2c_esp32_transfer(struct device *dev, struct i2c_msg *msgs,
-			      u8_t num_msgs, u16_t addr)
+static int i2c_esp32_transfer(const struct device *dev, struct i2c_msg *msgs,
+			      uint8_t num_msgs, uint16_t addr)
 {
-	struct i2c_esp32_data *data = dev->driver_data;
+	struct i2c_esp32_data *data = dev->data;
 	int ret = 0;
-	u8_t i;
+	uint8_t i;
 
 	k_sem_take(&data->transfer_sem, K_FOREVER);
 
@@ -551,7 +530,7 @@ static int i2c_esp32_transfer(struct device *dev, struct i2c_msg *msgs,
 	addr &= BIT_MASK(data->dev_config & I2C_ADDR_10_BITS ? 10 : 7);
 	addr <<= 1;
 
-	for (i = 0; i < num_msgs; i++) {
+	for (i = 0U; i < num_msgs; i++) {
 		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_WRITE) {
 			ret = i2c_esp32_write_msg(dev, addr, msgs[i]);
 		} else {
@@ -568,17 +547,16 @@ static int i2c_esp32_transfer(struct device *dev, struct i2c_msg *msgs,
 	return ret;
 }
 
-static void i2c_esp32_isr(void *arg)
+static void i2c_esp32_isr(const struct device *dev)
 {
 	const int fifo_give_mask = I2C_ACK_ERR_INT_ST |
 				   I2C_TIME_OUT_INT_ST |
 				   I2C_TRANS_COMPLETE_INT_ST |
 				   I2C_ARBITRATION_LOST_INT_ST;
-	struct device *device = arg;
-	const struct i2c_esp32_config *config = device->config->config_info;
+	const struct i2c_esp32_config *config = dev->config;
 
 	if (sys_read32(I2C_INT_STATUS_REG(config->index)) & fifo_give_mask) {
-		struct i2c_esp32_data *data = device->driver_data;
+		struct i2c_esp32_data *data = dev->data;
 
 		/* Only give the semaphore if a watched interrupt happens.
 		 * Error checking is performed at the other side of the
@@ -591,25 +569,25 @@ static void i2c_esp32_isr(void *arg)
 	sys_write32(~0, I2C_INT_CLR_REG(config->index));
 }
 
-static int i2c_esp32_init(struct device *dev);
+static int i2c_esp32_init(const struct device *dev);
 
 static const struct i2c_driver_api i2c_esp32_driver_api = {
 	.configure = i2c_esp32_configure,
 	.transfer = i2c_esp32_transfer,
 };
 
-#ifdef CONFIG_I2C_0
-DEVICE_DECLARE(i2c_esp32_0);
-
+#if DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay)
 static void i2c_esp32_connect_irq_0(void)
 {
 	IRQ_CONNECT(CONFIG_I2C_ESP32_0_IRQ, 1, i2c_esp32_isr,
-		    DEVICE_GET(i2c_esp32_0), 0);
+		    DEVICE_DT_INST_GET(0), 0);
 }
 
 static const struct i2c_esp32_config i2c_esp32_config_0 = {
 	.index = 0,
 	.connect_irq = i2c_esp32_connect_irq_0,
+	.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(0)),
+	.peripheral_id = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(0, offset),
 	.sig = {
 		.sda_out = I2CEXT0_SDA_OUT_IDX,
 		.sda_in = I2CEXT0_SDA_IN_IDX,
@@ -617,46 +595,43 @@ static const struct i2c_esp32_config i2c_esp32_config_0 = {
 		.scl_in = I2CEXT0_SCL_IN_IDX,
 	},
 	.pins = {
-		.scl = CONFIG_I2C_ESP32_0_SCL_PIN,
-		.sda = CONFIG_I2C_ESP32_0_SDA_PIN,
-	},
-	.enable_bits = {
-		.clk = DPORT_I2C_EXT0_CLK_EN,
-		.rst = DPORT_I2C_EXT0_RST,
+		.scl = DT_INST_PROP(0, scl_pin),
+		.sda = DT_INST_PROP(0, sda_pin),
 	},
 	.mode = {
 		.tx_lsb_first =
-			IS_ENABLED(CONFIG_ESP32_I2C_0_TX_LSB_FIRST),
+			IS_ENABLED(CONFIG_I2C_ESP32_0_TX_LSB_FIRST),
 		.rx_lsb_first =
-			IS_ENABLED(CONFIG_ESP32_I2C_0_RX_LSB_FIRST),
+			IS_ENABLED(CONFIG_I2C_ESP32_0_RX_LSB_FIRST),
 	},
 	.irq = {
 		.source = ETS_I2C_EXT0_INTR_SOURCE,
 		.line = CONFIG_I2C_ESP32_0_IRQ,
 	},
-	.default_config = CONFIG_I2C_0_DEFAULT_CFG,
+	.default_config = I2C_MODE_MASTER, /* FIXME: Zephyr don't support I2C_SLAVE_MODE */
+	.bitrate = DT_INST_PROP(0, clock_frequency),
 };
 
 static struct i2c_esp32_data i2c_esp32_data_0;
 
-DEVICE_AND_API_INIT(i2c_esp32_0, CONFIG_I2C_0_NAME, &i2c_esp32_init,
+DEVICE_DT_INST_DEFINE(0, &i2c_esp32_init, device_pm_control_nop,
 		    &i2c_esp32_data_0, &i2c_esp32_config_0,
 		    POST_KERNEL, CONFIG_I2C_INIT_PRIORITY,
 		    &i2c_esp32_driver_api);
-#endif /* CONFIG_I2C_0 */
+#endif /* DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay) */
 
-#ifdef CONFIG_I2C_1
-DEVICE_DECLARE(i2c_esp32_1);
-
+#if DT_NODE_HAS_STATUS(DT_DRV_INST(1), okay)
 static void i2c_esp32_connect_irq_1(void)
 {
 	IRQ_CONNECT(CONFIG_I2C_ESP32_1_IRQ, 1, i2c_esp32_isr,
-		    DEVICE_GET(i2c_esp32_1), 0);
+		    DEVICE_DT_INST_GET(1), 0);
 }
 
 static const struct i2c_esp32_config i2c_esp32_config_1 = {
 	.index = 1,
 	.connect_irq = i2c_esp32_connect_irq_1,
+	.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(1)),
+	.peripheral_id = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(1, offset),
 	.sig = {
 		.sda_out = I2CEXT1_SDA_OUT_IDX,
 		.sda_in = I2CEXT1_SDA_IN_IDX,
@@ -664,39 +639,38 @@ static const struct i2c_esp32_config i2c_esp32_config_1 = {
 		.scl_in = I2CEXT1_SCL_IN_IDX,
 	},
 	.pins = {
-		.scl = CONFIG_I2C_ESP32_1_SCL_PIN,
-		.sda = CONFIG_I2C_ESP32_1_SDA_PIN,
-	},
-	.enable_bits = {
-		.clk = DPORT_I2C_EXT1_CLK_EN,
-		.rst = DPORT_I2C_EXT1_RST,
+		.scl = DT_INST_PROP(1, scl_pin),
+		.sda = DT_INST_PROP(1, sda_pin),
 	},
 	.mode = {
 		.tx_lsb_first =
-			IS_ENABLED(CONFIG_ESP32_I2C_1_TX_LSB_FIRST),
+			IS_ENABLED(CONFIG_I2C_ESP32_1_TX_LSB_FIRST),
 		.rx_lsb_first =
-			IS_ENABLED(CONFIG_ESP32_I2C_1_RX_LSB_FIRST),
+			IS_ENABLED(CONFIG_I2C_ESP32_1_RX_LSB_FIRST),
 	},
 	.irq = {
 		.source = ETS_I2C_EXT1_INTR_SOURCE,
 		.line = CONFIG_I2C_ESP32_1_IRQ,
 	},
-	.default_config = CONFIG_I2C_1_DEFAULT_CFG,
+	.default_config = I2C_MODE_MASTER, /* FIXME: Zephyr don't support I2C_SLAVE_MODE */
+	.bitrate = DT_INST_PROP(1, clock_frequency),
 };
 
 static struct i2c_esp32_data i2c_esp32_data_1;
 
-DEVICE_AND_API_INIT(i2c_esp32_1, CONFIG_I2C_1_NAME, &i2c_esp32_init,
+DEVICE_DT_INST_DEFINE(1, &i2c_esp32_init, device_pm_control_nop,
 		    &i2c_esp32_data_1, &i2c_esp32_config_1,
 		    POST_KERNEL, CONFIG_I2C_INIT_PRIORITY,
 		    &i2c_esp32_driver_api);
-#endif /* CONFIG_I2C_1 */
+#endif /* DT_NODE_HAS_STATUS(DT_DRV_INST(1), okay) */
 
-static int i2c_esp32_init(struct device *dev)
+static int i2c_esp32_init(const struct device *dev)
 {
-	const struct i2c_esp32_config *config = dev->config->config_info;
-	struct i2c_esp32_data *data = dev->driver_data;
-	int key = irq_lock();
+	const struct i2c_esp32_config *config = dev->config;
+	struct i2c_esp32_data *data = dev->data;
+	uint32_t bitrate_cfg = i2c_map_dt_bitrate(config->bitrate);
+
+	unsigned int key = irq_lock();
 
 	k_sem_init(&data->fifo_sem, 1, 1);
 	k_sem_init(&data->transfer_sem, 1, 1);
@@ -712,5 +686,5 @@ static int i2c_esp32_init(struct device *dev)
 	config->connect_irq();
 	irq_unlock(key);
 
-	return i2c_esp32_configure(dev, config->default_config);
+	return i2c_esp32_configure(dev, config->default_config | bitrate_cfg);
 }

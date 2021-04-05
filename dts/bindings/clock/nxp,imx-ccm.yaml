@@ -1,39 +1,23 @@
-#
 # Copyright (c) 2017, NXP
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: i.MX Clock Controller Module (CCM)
-id: nxp,imx-ccm
-version: 0.1
 
-description: >
-    This is a representation of the i.MX CCM IP node
+description: i.MX CCM (Clock Controller Module) IP node
+
+compatible: "nxp,imx-ccm"
+
+include: [clock-controller.yaml, base.yaml]
 
 properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "nxp,imx-ccm"
-
     reg:
-      type: int
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     label:
-      type: string
-      category: required
-      description: Human readable string describing the device (used by Zephyr for API name)
-      generation: define
+      required: true
 
-cell_string: CCM_CLK
+    "#clock-cells":
+      const: 3
 
-"#cells":
+clock-cells:
   - name
   - offset
   - bits
-...

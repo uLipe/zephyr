@@ -18,7 +18,7 @@
 #include "master.h"
 
 char msg[MAX_MSG];
-char data_bench[OCTET_TO_SIZEOFUNIT(MESSAGE_SIZE)];
+char data_bench[MESSAGE_SIZE];
 
 #ifdef PIPE_BENCH
 struct k_pipe *test_pipes[] = {&PIPE_NOBUFF, &PIPE_SMALLBUFF, &PIPE_BIGBUFF};
@@ -32,12 +32,12 @@ FILE *output_file;
  * Time in timer cycles necessary to read time.
  * Used for correction in time measurements.
  */
-u32_t tm_off;
+uint32_t tm_off;
 
 
 /********************************************************************/
 /* static allocation  */
-K_THREAD_DEFINE(RECVTASK, 1024, recvtask, NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+K_THREAD_DEFINE(RECVTASK, 1024, recvtask, NULL, NULL, NULL, 5, 0, 0);
 
 K_MSGQ_DEFINE(DEMOQX1, 1, 500, 4);
 K_MSGQ_DEFINE(DEMOQX4, 4, 500, 4);
@@ -60,11 +60,6 @@ K_MUTEX_DEFINE(DEMO_MUTEX);
 K_PIPE_DEFINE(PIPE_NOBUFF, 0, 4);
 K_PIPE_DEFINE(PIPE_SMALLBUFF, 256, 4);
 K_PIPE_DEFINE(PIPE_BIGBUFF, 4096, 4);
-
-K_MEM_POOL_DEFINE(DEMOPOOL, 16, 16, 1, 4);
-
-K_ALERT_DEFINE(TEST_EVENT, NULL, 1);
-
 
 /**
  *
@@ -137,8 +132,6 @@ void main(void)
 		sema_test();
 		mutex_test();
 		memorymap_test();
-		mempool_test();
-		event_test();
 		mailbox_test();
 		pipe_test();
 		PRINT_STRING("|         END OF TESTS                     "

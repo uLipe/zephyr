@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: MIT */
+
 /* Based on src/http/ngx_http_parse.c from NGINX copyright Igor Sysoev
  *
  * Additional changes are licensed under the same terms as NGINX and
@@ -22,15 +24,16 @@
  * IN THE SOFTWARE.
  */
 #include <net/http_parser.h>
-#include <assert.h>
+#include <sys/__assert.h>
 #include <stddef.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <toolchain.h>
 
 #ifndef ULLONG_MAX
-# define ULLONG_MAX ((u64_t) -1) /* 2^64-1 */
+# define ULLONG_MAX ((uint64_t) -1) /* 2^64-1 */
 #endif
 
 #ifndef MIN
@@ -159,7 +162,7 @@ static const char tokens[256] = {
 
 
 static const
-s8_t unhex[256] = {
+int8_t unhex[256] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -203,7 +206,7 @@ static inline
 int cb_notify(struct http_parser *parser, enum state *current_state, http_cb cb,
 	      int cb_error, size_t *parsed, size_t already_parsed)
 {
-	assert(HTTP_PARSER_ERRNO(parser) == HPE_OK);
+	__ASSERT_NO_MSG(HTTP_PARSER_ERRNO(parser) == HPE_OK);
 
 	if (cb == NULL) {
 		return 0;
@@ -230,7 +233,7 @@ int cb_data(struct http_parser *parser, http_data_cb cb, int cb_error,
 {
 	int rc;
 
-	assert(HTTP_PARSER_ERRNO(parser) == HPE_OK);
+	__ASSERT_NO_MSG(HTTP_PARSER_ERRNO(parser) == HPE_OK);
 	if (*mark == NULL) {
 		return 0;
 	}
@@ -467,7 +470,7 @@ int parser_header_state(struct http_parser *parser, char ch, char c)
 		break;
 
 	default:
-		assert(0 && "Unknown header_state");
+		__ASSERT_NO_MSG(0 && "Unknown header_state");
 		break;
 	}
 	return 0;
@@ -509,12 +512,12 @@ int header_states(struct http_parser *parser, const char *data, size_t len,
 
 	case h_connection:
 	case h_transfer_encoding:
-		assert(0 && "Shouldn't get here.");
+		__ASSERT_NO_MSG(0 && "Shouldn't get here.");
 		break;
 
 	case h_content_length: {
-		u64_t t;
-		u64_t value;
+		uint64_t t;
+		uint64_t value;
 
 		if (ch == ' ') {
 			break;
@@ -527,7 +530,7 @@ int header_states(struct http_parser *parser, const char *data, size_t len,
 		}
 
 		t = parser->content_length;
-		t *= 10;
+		t *= 10U;
 		t += ch - '0';
 
 		/* Overflow? Test against a conservative limit for simplicity */
@@ -608,7 +611,7 @@ int header_states(struct http_parser *parser, const char *data, size_t len,
 	case h_matching_connection_token:
 		if (ch == ',') {
 			h_state = h_matching_connection_token_start;
-			parser->index = 0;
+			parser->index = 0U;
 		}
 		break;
 
@@ -630,7 +633,7 @@ int header_states(struct http_parser *parser, const char *data, size_t len,
 				parser->flags |= F_CONNECTION_UPGRADE;
 			}
 			h_state = h_matching_connection_token_start;
-			parser->index = 0;
+			parser->index = 0U;
 		} else if (ch != ' ') {
 			h_state = h_matching_connection_token;
 		}
@@ -657,7 +660,7 @@ int zero_content_length(struct http_parser *parser,
 	enum state p_state = *current_state;
 	int rc;
 
-	if (parser->content_length == 0) {
+	if (parser->content_length == 0U) {
 		/* Content-Length header given but zero:
 		 * Content-Length: 0\r\n
 		 */
@@ -713,7 +716,7 @@ int parser_execute(struct http_parser *parser,
 	const char *url_mark = 0;
 	const char *body_mark = 0;
 	const char *status_mark = 0;
-	s8_t unhex_val;
+	int8_t unhex_val;
 	int rc;
 	char ch;
 	char c;
@@ -806,7 +809,7 @@ reexecute:
 			if (ch == CR || ch == LF) {
 				break;
 			}
-			parser->flags = 0;
+			parser->flags = 0U;
 			parser->content_length = ULLONG_MAX;
 
 			if (ch == 'H') {
@@ -840,13 +843,13 @@ reexecute:
 
 				parser->type = HTTP_REQUEST;
 				parser->method = HTTP_HEAD;
-				parser->index = 2;
+				parser->index = 2U;
 				UPDATE_STATE(s_req_method);
 			}
 			break;
 
 		case s_start_res: {
-			parser->flags = 0;
+			parser->flags = 0U;
 			parser->content_length = ULLONG_MAX;
 
 			switch (ch) {
@@ -928,7 +931,7 @@ reexecute:
 				goto error;
 			}
 
-			parser->http_major *= 10;
+			parser->http_major *= 10U;
 			parser->http_major += ch - '0';
 
 			if (UNLIKELY(parser->http_major > 999)) {
@@ -962,7 +965,7 @@ reexecute:
 				goto error;
 			}
 
-			parser->http_minor *= 10;
+			parser->http_minor *= 10U;
 			parser->http_minor += ch - '0';
 
 			if (UNLIKELY(parser->http_minor > 999)) {
@@ -1006,7 +1009,7 @@ reexecute:
 				break;
 			}
 
-			parser->status_code *= 10;
+			parser->status_code *= 10U;
 			parser->status_code += ch - '0';
 
 			if (UNLIKELY(parser->status_code > 999)) {
@@ -1030,7 +1033,7 @@ reexecute:
 
 			MARK(status);
 			UPDATE_STATE(s_res_status);
-			parser->index = 0;
+			parser->index = 0U;
 			break;
 		}
 
@@ -1074,7 +1077,7 @@ reexecute:
 			if (ch == CR || ch == LF) {
 				break;
 			}
-			parser->flags = 0;
+			parser->flags = 0U;
 			parser->content_length = ULLONG_MAX;
 
 			if (UNLIKELY(!IS_ALPHA(ch))) {
@@ -1083,7 +1086,7 @@ reexecute:
 			}
 
 			parser->method = (enum http_method) 0;
-			parser->index = 1;
+			parser->index = 1U;
 			switch (ch) {
 			case 'A':
 				parser->method = HTTP_ACL;
@@ -1169,7 +1172,7 @@ reexecute:
 				; /* nada */
 			} else if (IS_ALPHA(ch)) {
 
-				u64_t sw_option = parser->method << 16 |
+				uint64_t sw_option = parser->method << 16 |
 						     parser->index << 8 | ch;
 				switch (sw_option) {
 				case (HTTP_POST << 16 | 1 << 8 | 'U'):
@@ -1228,7 +1231,7 @@ reexecute:
 					goto error;
 				}
 			} else if (ch == '-' &&
-					parser->index == 1 &&
+					parser->index == 1U &&
 					parser->method == HTTP_MKCOL) {
 				parser->method = HTTP_MSEARCH;
 			} else {
@@ -1303,8 +1306,8 @@ reexecute:
 				break;
 			case CR:
 			case LF:
-				parser->http_major = 0;
-				parser->http_minor = 9;
+				parser->http_major = 0U;
+				parser->http_minor = 9U;
 				UPDATE_STATE((ch == CR) ?
 					     s_req_line_almost_done :
 					     s_header_field_start);
@@ -1396,7 +1399,7 @@ reexecute:
 				goto error;
 			}
 
-			parser->http_major *= 10;
+			parser->http_major *= 10U;
 			parser->http_major += ch - '0';
 
 			if (UNLIKELY(parser->http_major > 999)) {
@@ -1437,7 +1440,7 @@ reexecute:
 				goto error;
 			}
 
-			parser->http_minor *= 10;
+			parser->http_minor *= 10U;
 			parser->http_minor += ch - '0';
 
 			if (UNLIKELY(parser->http_minor > 999)) {
@@ -1483,7 +1486,7 @@ reexecute:
 
 			MARK(header_field);
 
-			parser->index = 0;
+			parser->index = 0U;
 			UPDATE_STATE(s_header_field);
 
 			switch (c) {
@@ -1569,13 +1572,13 @@ reexecute:
 				break;
 			}
 
-		/* FALLTHROUGH */
+			__fallthrough;
 
 		case s_header_value_start: {
 			MARK(header_value);
 
 			UPDATE_STATE(s_header_value);
-			parser->index = 0;
+			parser->index = 0U;
 
 			c = LOWER(ch);
 
@@ -1842,7 +1845,7 @@ reexecute:
 			 * returns 1, we
 			 * will interpret that as saying that this message has
 			 * no body. This
-			 * is needed for the annoying case of recieving a
+			 * is needed for the annoying case of receiving a
 			 * response to a HEAD
 			 * request.
 			 *
@@ -1857,7 +1860,8 @@ reexecute:
 					break;
 
 				case 2:
-					parser->upgrade = 1;
+					parser->upgrade = 1U;
+					__fallthrough;
 
 				case 1:
 					parser->flags |= F_SKIPBODY;
@@ -1889,7 +1893,7 @@ reexecute:
 				goto error;
 			}
 
-			parser->nread = 0;
+			parser->nread = 0U;
 
 			hasBody = parser->flags & F_CHUNKED ||
 				  (parser->content_length > 0 &&
@@ -1943,10 +1947,10 @@ reexecute:
 		}
 
 		case s_body_identity: {
-			u64_t to_read = MIN(parser->content_length,
-					       (u64_t) ((data + len) - p));
+			uint64_t to_read = MIN(parser->content_length,
+					       (uint64_t) ((data + len) - p));
 
-			assert(parser->content_length != 0
+			__ASSERT_NO_MSG(parser->content_length != 0U
 			       && parser->content_length != ULLONG_MAX);
 
 			/* The difference between advancing content_length and
@@ -1962,7 +1966,7 @@ reexecute:
 			parser->content_length -= to_read;
 			p += to_read - 1;
 
-			if (parser->content_length == 0) {
+			if (parser->content_length == 0U) {
 				UPDATE_STATE(s_message_done);
 
 				/* Mimic CALLBACK_DATA_NOADVANCE() but with one
@@ -2024,8 +2028,8 @@ reexecute:
 			break;
 
 		case s_chunk_size_start: {
-			assert(parser->nread == 1);
-			assert(parser->flags & F_CHUNKED);
+			__ASSERT_NO_MSG(parser->nread == 1U);
+			__ASSERT_NO_MSG(parser->flags & F_CHUNKED);
 
 			unhex_val = unhex[(unsigned char)ch];
 			if (UNLIKELY(unhex_val == -1)) {
@@ -2039,9 +2043,9 @@ reexecute:
 		}
 
 		case s_chunk_size: {
-			u64_t t;
+			uint64_t t;
 
-			assert(parser->flags & F_CHUNKED);
+			__ASSERT_NO_MSG(parser->flags & F_CHUNKED);
 
 			if (ch == CR) {
 				UPDATE_STATE(s_chunk_size_almost_done);
@@ -2061,13 +2065,13 @@ reexecute:
 			}
 
 			t = parser->content_length;
-			t *= 16;
+			t *= 16U;
 			t += unhex_val;
 
 			/* Overflow? Test against a conservative limit for
 			 * simplicity.
 			 */
-			u64_t ulong_value = (ULLONG_MAX - 16) / 16;
+			uint64_t ulong_value = (ULLONG_MAX - 16) / 16;
 
 			if (UNLIKELY(ulong_value < parser->content_length)) {
 				SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
@@ -2079,7 +2083,7 @@ reexecute:
 		}
 
 		case s_chunk_parameters: {
-			assert(parser->flags & F_CHUNKED);
+			__ASSERT_NO_MSG(parser->flags & F_CHUNKED);
 			/* just ignore this shit. TODO check for overflow */
 			if (ch == CR) {
 				UPDATE_STATE(s_chunk_size_almost_done);
@@ -2089,16 +2093,16 @@ reexecute:
 		}
 
 		case s_chunk_size_almost_done: {
-			assert(parser->flags & F_CHUNKED);
+			__ASSERT_NO_MSG(parser->flags & F_CHUNKED);
 
 			rc = strict_check(parser, ch != LF);
 			if (rc != 0) {
 				goto error;
 			}
 
-			parser->nread = 0;
+			parser->nread = 0U;
 
-			if (parser->content_length == 0) {
+			if (parser->content_length == 0U) {
 				parser->flags |= F_TRAILING;
 				UPDATE_STATE(s_header_field_start);
 			} else {
@@ -2116,12 +2120,12 @@ reexecute:
 		}
 
 		case s_chunk_data: {
-			u64_t to_read = MIN(parser->content_length,
-					       (u64_t) ((data + len) - p));
+			uint64_t to_read = MIN(parser->content_length,
+					       (uint64_t) ((data + len) - p));
 
-			assert(parser->flags & F_CHUNKED);
-			assert(parser->content_length != 0
-			       && parser->content_length != ULLONG_MAX);
+			__ASSERT_NO_MSG(parser->flags & F_CHUNKED);
+			__ASSERT_NO_MSG(parser->content_length != 0U
+					&& parser->content_length != ULLONG_MAX);
 
 			/* See the explanation in s_body_identity for why the
 			 * content
@@ -2131,7 +2135,7 @@ reexecute:
 			parser->content_length -= to_read;
 			p += to_read - 1;
 
-			if (parser->content_length == 0) {
+			if (parser->content_length == 0U) {
 				UPDATE_STATE(s_chunk_data_almost_done);
 			}
 
@@ -2139,8 +2143,8 @@ reexecute:
 		}
 
 		case s_chunk_data_almost_done:
-			assert(parser->flags & F_CHUNKED);
-			assert(parser->content_length == 0);
+			__ASSERT_NO_MSG(parser->flags & F_CHUNKED);
+			__ASSERT_NO_MSG(parser->content_length == 0U);
 			rc = strict_check(parser, ch != CR);
 			if (rc != 0) {
 				goto error;
@@ -2156,12 +2160,12 @@ reexecute:
 			break;
 
 		case s_chunk_data_done:
-			assert(parser->flags & F_CHUNKED);
+			__ASSERT_NO_MSG(parser->flags & F_CHUNKED);
 			rc = strict_check(parser, ch != LF);
 			if (rc != 0) {
 				goto error;
 			}
-			parser->nread = 0;
+			parser->nread = 0U;
 			UPDATE_STATE(s_chunk_size_start);
 
 			rc = cb_notify(parser, &p_state,
@@ -2174,7 +2178,7 @@ reexecute:
 			break;
 
 		default:
-			assert(0 && "unhandled state");
+			__ASSERT_NO_MSG(0 && "unhandled state");
 			SET_ERRNO(HPE_INVALID_INTERNAL_STATE);
 			goto error;
 		}
@@ -2193,11 +2197,11 @@ reexecute:
 	 * value that's in-bounds).
 	 */
 
-	assert(((header_field_mark ? 1 : 0) +
-		(header_value_mark ? 1 : 0) +
-		(url_mark ? 1 : 0)  +
-		(body_mark ? 1 : 0) +
-		(status_mark ? 1 : 0)) <= 1);
+	__ASSERT_NO_MSG(((header_field_mark ? 1 : 0) +
+			(header_value_mark ? 1 : 0) +
+			(url_mark ? 1 : 0)  +
+			(body_mark ? 1 : 0) +
+			(status_mark ? 1 : 0)) <= 1);
 
 	rc = cb_data(parser, settings->on_header_field, HPE_CB_header_field,
 		     &p_state, parsed, p - data, &header_field_mark,
@@ -2259,9 +2263,9 @@ int http_message_needs_eof(const struct http_parser *parser)
 	}
 
 	/* See RFC 2616 section 4.4 */
-	if (parser->status_code / 100 == 1 || /* 1xx e.g. Continue */
-			parser->status_code == 204 ||     /* No Content */
-			parser->status_code == 304 ||     /* Not Modified */
+	if (parser->status_code / 100 == 1U || /* 1xx e.g. Continue */
+			parser->status_code == 204U ||     /* No Content */
+			parser->status_code == 304U ||     /* Not Modified */
 			parser->flags & F_SKIPBODY) {     /* response to a HEAD
 							   * request
 							   */
@@ -2305,7 +2309,7 @@ void http_parser_init(struct http_parser *parser, enum http_parser_type t)
 {
 	void *data = parser->data; /* preserve application data */
 
-	memset(parser, 0, sizeof(*parser));
+	(void)memset(parser, 0, sizeof(*parser));
 	parser->data = data;
 	parser->type = t;
 	parser->state =
@@ -2316,19 +2320,19 @@ void http_parser_init(struct http_parser *parser, enum http_parser_type t)
 
 void http_parser_settings_init(struct http_parser_settings *settings)
 {
-	memset(settings, 0, sizeof(*settings));
+	(void)memset(settings, 0, sizeof(*settings));
 }
 
 const char *http_errno_name(enum http_errno err)
 {
-	assert(((size_t) err) < ARRAY_SIZE(http_strerror_tab));
+	__ASSERT_NO_MSG(((size_t) err) < ARRAY_SIZE(http_strerror_tab));
 
 	return http_strerror_tab[err].name;
 }
 
 const char *http_errno_description(enum http_errno err)
 {
-	assert(((size_t) err) < ARRAY_SIZE(http_strerror_tab));
+	__ASSERT_NO_MSG(((size_t) err) < ARRAY_SIZE(http_strerror_tab));
 
 	return http_strerror_tab[err].description;
 }
@@ -2345,7 +2349,7 @@ void http_parser_pause(struct http_parser *parser, int paused)
 			HTTP_PARSER_ERRNO(parser) == HPE_PAUSED) {
 		SET_ERRNO((paused) ? HPE_PAUSED : HPE_OK);
 	} else {
-		assert(0 && "Attempting to pause parser in error state");
+		__ASSERT_NO_MSG(0 && "Attempting to pause parser in error state");
 	}
 }
 

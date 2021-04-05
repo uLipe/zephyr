@@ -1,7 +1,8 @@
 sample:
-  description: TBD
-  name: TBD
+  name: SX9500 Sensor Sample
 tests:
-  - test:
-      build_only: true
-      tags: samples
+  sample.sensor.sx9500:
+    harness: sensor
+    tags: sensors
+    depends_on: i2c gpio
+    filter: dt_compat_enabled("semtech,sx9500")

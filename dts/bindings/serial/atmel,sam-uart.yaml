@@ -1,36 +1,30 @@
----
-title: SAM Family UART
-id: atmel,sam-uart
-version: 0.1
+description: SAM family UART
 
-description: >
-    This binding gives a base representation of the SAM UART
+compatible: "atmel,sam-uart"
 
-inherits:
-    !include uart.yaml
+include: uart-controller.yaml
 
 properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "atmel,sam-uart"
-
     reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
 
     peripheral-id:
       type: int
       description: peripheral ID
-      generation: define
-      category: required
-...
+      required: true
+
+    pinctrl-0:
+      type: phandles
+      description: |
+        PIO pin configuration for URXD & UTRD signals.  We expect that
+        the phandles will reference pinctrl nodes.  These nodes will
+        have a nodelabel that matches the Atmel SoC HAL defines and
+        be of the form p<port><pin><periph>_<inst>_<signal>.
+
+        For example the UART on SAM3x would be
+           pinctrl-0 = <&pa8a_uart_urxd &pa9a_uart_utxd>;
+
+      required: true

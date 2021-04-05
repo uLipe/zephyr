@@ -4,51 +4,77 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _FS_INTERFACE_H_
-#define _FS_INTERFACE_H_
+#ifndef ZEPHYR_INCLUDE_FS_FS_INTERFACE_H_
+#define ZEPHYR_INCLUDE_FS_FS_INTERFACE_H_
+
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/*
- * @brief Macro to define _zfile_object structure
- *
- * This structure contains information about the open files. This
- * structure will be passed to the api functions as an opaque
- * pointer.
- *
- * @param _file_object File structure used by underlying file system
+#if (CONFIG_FILE_SYSTEM_MAX_FILE_NAME - 0) > 0
+#define MAX_FILE_NAME CONFIG_FILE_SYSTEM_MAX_FILE_NAME
+#else /* CONFIG_FILE_SYSTEM_MAX_FILE_NAME */
+/* Select from enabled file systems */
+#if defined(CONFIG_FILE_SYSTEM_LITTLEFS)
+#define MAX_FILE_NAME 256
+#elif defined(CONFIG_FAT_FILESYSTEM_ELM)
+#if defined(CONFIG_FS_FATFS_LFN)
+#define MAX_FILE_NAME CONFIG_FS_FATFS_MAX_LFN
+#else /* CONFIG_FS_FATFS_LFN */
+#define MAX_FILE_NAME 12 /* Uses 8.3 SFN */
+#endif /* CONFIG_FS_FATFS_LFN */
+#else /* filesystem selection */
+/* Use standard 8.3 when no filesystem is explicitly selected */
+#define MAX_FILE_NAME 12
+#endif /* filesystem selection */
+#endif /* CONFIG_FILE_SYSTEM_MAX_FILE_NAME */
+
+
+/* Type for fs_open flags */
+typedef uint8_t fs_mode_t;
+
+struct fs_mount_t;
+
+/**
+ * @addtogroup file_system_api
+ * @{
  */
 
-#define FS_FILE_DEFINE(_file_object) \
-	struct _fs_file_object { \
-		_file_object; \
-	}
-
-/*
- * @brief Macro to define _zdir_object structure
+/**
+ * @brief File object representing an open file
  *
- * This structure contains information about the open directories. This
- * structure will be passed to the directory api functions as an opaque
- * pointer.
+ * The object needs to be initialized with function fs_file_t_init().
  *
- * @param _dir_object Directory structure used by underlying file system
+ * @param Pointer to FATFS file object structure
+ * @param mp Pointer to mount point structure
  */
+struct fs_file_t {
+	void *filep;
+	const struct fs_mount_t *mp;
+	fs_mode_t flags;
+};
 
-#define FS_DIR_DEFINE(_dir_object) \
-	struct _fs_dir_object { \
-		_dir_object; \
-	}
+/**
+ * @brief Directory object representing an open directory
+ *
+ * The object needs to be initialized with function fs_dir_t_init().
+ *
+ * @param dirp Pointer to directory object structure
+ * @param mp Pointer to mount point structure
+ */
+struct fs_dir_t {
+	void *dirp;
+	const struct fs_mount_t *mp;
+};
 
-#ifdef CONFIG_FAT_FILESYSTEM_ELM
-#include <fs/fat_fs.h>
-#elif CONFIG_FILE_SYSTEM_NFFS
-#include <fs/nffs_fs.h>
-#endif
+/**
+ * @}
+ */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _FS_INTERFACE_H_ */
+#endif /* ZEPHYR_INCLUDE_FS_FS_INTERFACE_H_ */

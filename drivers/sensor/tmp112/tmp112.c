@@ -4,19 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT ti_tmp112
+
 #include <device.h>
-#include <i2c.h>
-#include <misc/byteorder.h>
-#include <misc/util.h>
+#include <drivers/i2c.h>
+#include <sys/byteorder.h>
+#include <sys/util.h>
 #include <kernel.h>
-#include <sensor.h>
-#include <misc/__assert.h>
+#include <drivers/sensor.h>
+#include <sys/__assert.h>
+#include <logging/log.h>
 
-#define SYS_LOG_DOMAIN "TMP112"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
+LOG_MODULE_REGISTER(TMP112, CONFIG_SENSOR_LOG_LEVEL);
 
-#define TMP112_I2C_ADDRESS		CONFIG_TMP112_I2C_ADDR
+#define TMP112_I2C_ADDRESS		DT_INST_REG_ADDR(0)
 
 #define TMP112_REG_TEMPERATURE		0x00
 #define TMP112_D0_BIT			BIT(0)
@@ -30,27 +31,15 @@
 #define TMP112_TEMP_SCALE		62500
 
 struct tmp112_data {
-	struct device *i2c;
-	s16_t sample;
+	const struct device *i2c;
+	int16_t sample;
 };
 
 static int tmp112_reg_read(struct tmp112_data *drv_data,
-			   u8_t reg, u16_t *val)
+			   uint8_t reg, uint16_t *val)
 {
-	struct i2c_msg msgs[2] = {
-		{
-			.buf = &reg,
-			.len = 1,
-			.flags = I2C_MSG_WRITE | I2C_MSG_RESTART,
-		},
-		{
-			.buf = (u8_t *)val,
-			.len = 2,
-			.flags = I2C_MSG_READ | I2C_MSG_STOP,
-		},
-	};
-
-	if (i2c_transfer(drv_data->i2c, msgs, 2, TMP112_I2C_ADDRESS) < 0) {
+	if (i2c_burst_read(drv_data->i2c, TMP112_I2C_ADDRESS,
+			   reg, (uint8_t *) val, 2) < 0) {
 		return -EIO;
 	}
 
@@ -60,19 +49,19 @@ static int tmp112_reg_read(struct tmp112_data *drv_data,
 }
 
 static int tmp112_reg_write(struct tmp112_data *drv_data,
-			    u8_t reg, u16_t val)
+			    uint8_t reg, uint16_t val)
 {
-	u8_t tx_buf[3] = {reg, val >> 8, val & 0xFF};
+	uint16_t val_be = sys_cpu_to_be16(val);
 
-	return i2c_write(drv_data->i2c, tx_buf, sizeof(tx_buf),
-			 TMP112_I2C_ADDRESS);
+	return i2c_burst_write(drv_data->i2c, TMP112_I2C_ADDRESS,
+			       reg, (uint8_t *)&val_be, 2);
 }
 
-static int tmp112_reg_update(struct tmp112_data *drv_data, u8_t reg,
-			     u16_t mask, u16_t val)
+static int tmp112_reg_update(struct tmp112_data *drv_data, uint8_t reg,
+			     uint16_t mask, uint16_t val)
 {
-	u16_t old_val = 0;
-	u16_t new_val;
+	uint16_t old_val = 0U;
+	uint16_t new_val;
 
 	if (tmp112_reg_read(drv_data, reg, &old_val) < 0) {
 		return -EIO;
@@ -84,16 +73,16 @@ static int tmp112_reg_update(struct tmp112_data *drv_data, u8_t reg,
 	return tmp112_reg_write(drv_data, reg, new_val);
 }
 
-static int tmp112_attr_set(struct device *dev,
+static int tmp112_attr_set(const struct device *dev,
 			   enum sensor_channel chan,
 			   enum sensor_attribute attr,
 			   const struct sensor_value *val)
 {
-	struct tmp112_data *drv_data = dev->driver_data;
-	s64_t value;
-	u16_t cr;
+	struct tmp112_data *drv_data = dev->data;
+	int64_t value;
+	uint16_t cr;
 
-	if (chan != SENSOR_CHAN_TEMP) {
+	if (chan != SENSOR_CHAN_AMBIENT_TEMP) {
 		return -ENOTSUP;
 	}
 
@@ -111,7 +100,7 @@ static int tmp112_attr_set(struct device *dev,
 
 		if (tmp112_reg_update(drv_data, TMP112_REG_CONFIG,
 				      TMP112_EM_BIT, value) < 0) {
-			SYS_LOG_DBG("Failed to set attribute!");
+			LOG_DBG("Failed to set attribute!");
 			return -EIO;
 		}
 
@@ -147,7 +136,7 @@ static int tmp112_attr_set(struct device *dev,
 		if (tmp112_reg_update(drv_data, TMP112_REG_CONFIG,
 				      TMP112_CR0_BIT | TMP112_CR1_BIT,
 				      value) < 0) {
-			SYS_LOG_DBG("Failed to set attribute!");
+			LOG_DBG("Failed to set attribute!");
 			return -EIO;
 		}
 
@@ -160,38 +149,39 @@ static int tmp112_attr_set(struct device *dev,
 	return 0;
 }
 
-static int tmp112_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int tmp112_sample_fetch(const struct device *dev,
+			       enum sensor_channel chan)
 {
-	struct tmp112_data *drv_data = dev->driver_data;
-	u16_t val;
+	struct tmp112_data *drv_data = dev->data;
+	uint16_t val;
 
-	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_TEMP);
+	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_AMBIENT_TEMP);
 
 	if (tmp112_reg_read(drv_data, TMP112_REG_TEMPERATURE, &val) < 0) {
 		return -EIO;
 	}
 
 	if (val & TMP112_D0_BIT) {
-		drv_data->sample = arithmetic_shift_right((s16_t)val, 3);
+		drv_data->sample = arithmetic_shift_right((int16_t)val, 3);
 	} else {
-		drv_data->sample = arithmetic_shift_right((s16_t)val, 4);
+		drv_data->sample = arithmetic_shift_right((int16_t)val, 4);
 	}
 
 	return 0;
 }
 
-static int tmp112_channel_get(struct device *dev,
-		enum sensor_channel chan,
-		struct sensor_value *val)
+static int tmp112_channel_get(const struct device *dev,
+			      enum sensor_channel chan,
+			      struct sensor_value *val)
 {
-	struct tmp112_data *drv_data = dev->driver_data;
-	s32_t uval;
+	struct tmp112_data *drv_data = dev->data;
+	int32_t uval;
 
-	if (chan != SENSOR_CHAN_TEMP) {
+	if (chan != SENSOR_CHAN_AMBIENT_TEMP) {
 		return -ENOTSUP;
 	}
 
-	uval = (s32_t)drv_data->sample * TMP112_TEMP_SCALE;
+	uval = (int32_t)drv_data->sample * TMP112_TEMP_SCALE;
 	val->val1 = uval / 1000000;
 	val->val2 = uval % 1000000;
 
@@ -204,23 +194,21 @@ static const struct sensor_driver_api tmp112_driver_api = {
 	.channel_get = tmp112_channel_get,
 };
 
-int tmp112_init(struct device *dev)
+int tmp112_init(const struct device *dev)
 {
-	struct tmp112_data *drv_data = dev->driver_data;
+	struct tmp112_data *drv_data = dev->data;
 
-	drv_data->i2c = device_get_binding(CONFIG_TMP112_I2C_MASTER_DEV_NAME);
+	drv_data->i2c = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (drv_data->i2c == NULL) {
-		SYS_LOG_DBG("Failed to get pointer to %s device!",
-			    CONFIG_TMP112_I2C_MASTER_DEV_NAME);
+		LOG_DBG("Failed to get pointer to %s device!",
+			    DT_INST_BUS_LABEL(0));
 		return -EINVAL;
 	}
-
-	dev->driver_api = &tmp112_driver_api;
 
 	return 0;
 }
 
 static struct tmp112_data tmp112_driver;
 
-DEVICE_INIT(tmp112, CONFIG_TMP112_NAME, tmp112_init, &tmp112_driver,
-	    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY);
+DEVICE_DT_INST_DEFINE(0, tmp112_init, device_pm_control_nop, &tmp112_driver,
+	    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &tmp112_driver_api);

@@ -5,12 +5,12 @@
  *
  */
 
-#ifndef _ATAES132A_PRIV_
-#define _ATAES132A_PRIV_
+#ifndef ZEPHYR_DRIVERS_CRYPTO_CRYPTO_ATAES132A_PRIV_H_
+#define ZEPHYR_DRIVERS_CRYPTO_CRYPTO_ATAES132A_PRIV_H_
 
-#include <i2c.h>
+#include <drivers/i2c.h>
 #include <kernel.h>
-#include <misc/util.h>
+#include <sys/util.h>
 
 /* Configuration Read Only Registers */
 #define ATAES_SERIALNUM_REG	0xF000
@@ -102,7 +102,7 @@
 #define ATAES_MAC_MODE_SERIAL    BIT(6)
 #define ATAES_MAC_MODE_SMALLZONE BIT(7)
 
-#if defined(CONFIG_ATAES132A_I2C_SPEED_STANDARD)
+#if defined(CONFIG_CRYPTO_ATAES132A_I2C_SPEED_STANDARD)
 #define ATAES132A_BUS_SPEED		I2C_SPEED_STANDARD
 #else
 #define ATAES132A_BUS_SPEED		I2C_SPEED_FAST
@@ -110,16 +110,16 @@
 
 #define CRC16_POLY 0x8005
 
-void ataes132a_atmel_crc(u8_t *input, u8_t length,
-			 u8_t *output)
+void ataes132a_atmel_crc(uint8_t *input, uint8_t length,
+			 uint8_t *output)
 {
 	int i, j;
-	u8_t bit;
-	u16_t crc;
-	u16_t double_carry;
-	u8_t higher_crc_bit;
+	uint8_t bit;
+	uint16_t crc;
+	uint16_t double_carry;
+	uint8_t higher_crc_bit;
 
-	for (i = 0, crc = 0; i < length; i++) {
+	for (i = 0, crc = 0U; i < length; i++) {
 		for (j = 7; j >=  0; j--) {
 			bit = !!(input[i] & BIT(j));
 			higher_crc_bit = crc >> 15;
@@ -133,21 +133,21 @@ void ataes132a_atmel_crc(u8_t *input, u8_t length,
 		}
 	}
 
-	*(u16_t *)output = crc << 8 | crc >> 8;
+	*(uint16_t *)output = crc << 8 | crc >> 8;
 }
 
-static inline int burst_write_i2c(struct device *dev, u16_t dev_addr,
-				  u16_t start_addr, u8_t *buf,
-				  u8_t num_bytes)
+static inline int burst_write_i2c(const struct device *dev, uint16_t dev_addr,
+				  uint16_t start_addr, uint8_t *buf,
+				  uint8_t num_bytes)
 {
-	const struct i2c_driver_api *api = dev->driver_api;
-	u8_t addr_buffer[2];
+	const struct i2c_driver_api *api = dev->api;
+	uint8_t addr_buffer[2];
 	struct i2c_msg msg[2];
 
 	addr_buffer[1] = start_addr & 0xFF;
 	addr_buffer[0] = start_addr >> 8;
 	msg[0].buf = addr_buffer;
-	msg[0].len = 2;
+	msg[0].len = 2U;
 	msg[0].flags = I2C_MSG_WRITE;
 
 	msg[1].buf = buf;
@@ -158,18 +158,18 @@ static inline int burst_write_i2c(struct device *dev, u16_t dev_addr,
 }
 
 
-static inline int burst_read_i2c(struct device *dev, u16_t dev_addr,
-				 u16_t start_addr, u8_t *buf,
-				 u8_t num_bytes)
+static inline int burst_read_i2c(const struct device *dev, uint16_t dev_addr,
+				 uint16_t start_addr, uint8_t *buf,
+				 uint8_t num_bytes)
 {
-	const struct i2c_driver_api *api = dev->driver_api;
-	u8_t addr_buffer[2];
+	const struct i2c_driver_api *api = dev->api;
+	uint8_t addr_buffer[2];
 	struct i2c_msg msg[2];
 
 	addr_buffer[1] = start_addr & 0xFF;
 	addr_buffer[0] = start_addr >> 8;
 	msg[0].buf = addr_buffer;
-	msg[0].len = 2;
+	msg[0].len = 2U;
 	msg[0].flags = I2C_MSG_WRITE;
 
 	msg[1].buf = buf;
@@ -179,35 +179,35 @@ static inline int burst_read_i2c(struct device *dev, u16_t dev_addr,
 	return api->transfer(dev, msg, 2, dev_addr);
 }
 
-static inline int read_reg_i2c(struct device *dev, u16_t dev_addr,
-			       u16_t reg_addr, u8_t *value)
+static inline int read_reg_i2c(const struct device *dev, uint16_t dev_addr,
+			       uint16_t reg_addr, uint8_t *value)
 {
 	return burst_read_i2c(dev, dev_addr, reg_addr, value, 1);
 }
 
-static inline int write_reg_i2c(struct device *dev, u16_t dev_addr,
-				u16_t reg_addr, u8_t value)
+static inline int write_reg_i2c(const struct device *dev, uint16_t dev_addr,
+				uint16_t reg_addr, uint8_t value)
 {
 	return burst_write_i2c(dev, dev_addr, reg_addr, &value, 1);
 }
 
 struct ataes132a_device_config {
 	const char *i2c_port;
-	u16_t i2c_addr;
-	u8_t i2c_speed;
+	uint16_t i2c_addr;
+	uint8_t i2c_speed;
 };
 
 struct ataes132a_device_data {
-	struct device *i2c;
-	u8_t command_buffer[64];
+	const struct device *i2c;
+	uint8_t command_buffer[64];
 	struct k_sem device_sem;
 };
 
 struct ataes132a_driver_state {
 	bool in_use;
-	u8_t key_id;
-	u8_t key_config;
-	u8_t chip_config;
+	uint8_t key_id;
+	uint8_t key_config;
+	uint8_t chip_config;
 };
 
 /**
@@ -216,9 +216,9 @@ struct ataes132a_driver_state {
  */
 struct ataes132a_mac_packet {
 	/** Key storage id used on CCM encryption */
-	u8_t encryption_key_id;
+	uint8_t encryption_key_id;
 	/** MAC Count value */
-	u8_t encryption_mac_count;
+	uint8_t encryption_mac_count;
 };
 
 /**
@@ -252,7 +252,7 @@ struct ataes132a_mac_mode {
  *
  * @return Returns 0 in case of success and an error code otherwise.
  */
-int ataes132a_init(struct device *i2c_dev);
+int ataes132a_init(const struct device *i2c_dev);
 
 /**
  * @brief ATAES132A CCM decrypt function
@@ -311,12 +311,12 @@ int ataes132a_init(struct device *i2c_dev);
  *
  * @return Returns 0 in case of success and an error code otherwise.
  */
-int ataes132a_aes_ccm_decrypt(struct device *i2c_dev,
-			      u8_t key_id,
+int ataes132a_aes_ccm_decrypt(const struct device *i2c_dev,
+			      uint8_t key_id,
 			      struct ataes132a_mac_mode *mac_mode,
 			      struct ataes132a_mac_packet *mac_packet,
 			      struct cipher_aead_pkt *aead_op,
-			      u8_t *nonce_buf);
+			      uint8_t *nonce_buf);
 
  /**
   * @brief ATAES132A CCM encrypt function
@@ -359,12 +359,12 @@ int ataes132a_aes_ccm_decrypt(struct device *i2c_dev,
   *
   * @return Returns 0 in case of success and an error code otherwise.
   */
-int ataes132a_aes_ccm_encrypt(struct device *i2c_dev,
-			      u8_t key_id,
+int ataes132a_aes_ccm_encrypt(const struct device *i2c_dev,
+			      uint8_t key_id,
 			      struct ataes132a_mac_mode *mac_mode,
 			      struct cipher_aead_pkt *aead_op,
-			      u8_t *nonce_buf,
-			      u8_t *mac_count);
+			      uint8_t *nonce_buf,
+			      uint8_t *mac_count);
 
 /**
  * @brief ATAES132A ECM block function
@@ -387,8 +387,8 @@ int ataes132a_aes_ccm_encrypt(struct device *i2c_dev,
  *
  * @return Returns 0 in case of success and an error code otherwise.
  */
-int ataes132a_aes_ecb_block(struct device *i2c_dev,
-			    u8_t key_id,
+int ataes132a_aes_ecb_block(const struct device *i2c_dev,
+			    uint8_t key_id,
 			    struct cipher_pkt *pkt);
 
-#endif /* _ATAES132A_PRIV_ */
+#endif /* ZEPHYR_DRIVERS_CRYPTO_CRYPTO_ATAES132A_PRIV_H_ */

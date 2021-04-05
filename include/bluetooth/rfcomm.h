@@ -7,8 +7,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef __BT_RFCOMM_H
-#define __BT_RFCOMM_H
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_RFCOMM_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_RFCOMM_H_
 
 /**
  * @brief RFCOMM
@@ -17,14 +17,12 @@
  * @{
  */
 
+#include <bluetooth/buf.h>
+#include <bluetooth/conn.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* FIXME: temporary workaround until thread details are made internal */
-#include "../../subsys/bluetooth/common/log.h"
-#include <bluetooth/buf.h>
-#include <bluetooth/conn.h>
 
 /* RFCOMM channels (1-30): pre-allocated for profiles to avoid conflicts */
 enum {
@@ -91,19 +89,19 @@ struct bt_rfcomm_dlc {
 	bt_security_t              required_sec_level;
 	bt_rfcomm_role_t           role;
 
-	u16_t                      mtu;
-	u8_t                       dlci;
-	u8_t                       state;
-	u8_t                       rx_credit;
+	uint16_t                      mtu;
+	uint8_t                       dlci;
+	uint8_t                       state;
+	uint8_t                       rx_credit;
 
 	/* Stack & kernel data for TX thread */
 	struct k_thread            tx_thread;
-	BT_STACK(stack, 256);
+	K_KERNEL_STACK_MEMBER(stack, 256);
 };
 
 struct bt_rfcomm_server {
 	/** Server Channel */
-	u8_t channel;
+	uint8_t channel;
 
 	/** Server accept callback
 	 *
@@ -145,7 +143,7 @@ int bt_rfcomm_server_register(struct bt_rfcomm_server *server);
  *  @return 0 in case of success or negative value in case of error.
  */
 int bt_rfcomm_dlc_connect(struct bt_conn *conn, struct bt_rfcomm_dlc *dlc,
-			  u8_t channel);
+			  uint8_t channel);
 
 /** @brief Send data to RFCOMM
  *
@@ -187,4 +185,4 @@ struct net_buf *bt_rfcomm_create_pdu(struct net_buf_pool *pool);
  * @}
  */
 
-#endif /* __BT_RFCOMM_H */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_RFCOMM_H_ */

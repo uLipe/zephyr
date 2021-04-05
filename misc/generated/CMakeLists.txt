@@ -1,8 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
 set(CONFIGS_C ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/configs.c)
 
-file(STRINGS ${AUTOCONF_H} CONFIG_LIST REGEX "^#define CONFIG_")
-foreach (CONFIG ${CONFIG_LIST})
-  string(REGEX REPLACE "#define (CONFIG_[A-Z|_|0-9]*) (.*)" "GEN_ABSOLUTE_SYM(\\1, \\2)" CONFIG ${CONFIG})
+file(STRINGS
+  ${AUTOCONF_H}
+  LIST_OF_CONFIGS
+  REGEX "^#define CONFIG_"
+  ENCODING "UTF-8"
+  )
+foreach (CONFIG ${LIST_OF_CONFIGS})
+  string(REGEX REPLACE "#define (CONFIG_[A-Z|_|0-9]*) (.*)" "GEN_ABSOLUTE_SYM_KCONFIG(\\1, \\2)" CONFIG ${CONFIG})
   string(REGEX REPLACE "\"(.*)\"" "1" CONFIG ${CONFIG})
   set(GEN_ABS_SYM_LIST "${GEN_ABS_SYM_LIST}${CONFIG};\n")
 endforeach()

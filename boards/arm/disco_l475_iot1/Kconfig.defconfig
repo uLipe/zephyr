@@ -1,111 +1,65 @@
-# Kconfig - Discovery IoT L475 board configuration
-#
+# Discovery IoT L475 board configuration
+
 # Copyright (c) 2017 Linaro Limited
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 if BOARD_DISCO_L475_IOT1
 
 config BOARD
-	default disco_l475_iot1
+	default "disco_l475_iot1"
 
-if GPIO
+choice STM32_LPTIM_CLOCK
+	default STM32_LPTIM_CLOCK_LSE
+	depends on STM32_LPTIM_TIMER
+endchoice
 
-config GPIO_STM32_PORTA
-	def_bool y
-
-config GPIO_STM32_PORTB
-	def_bool y
-
-config GPIO_STM32_PORTC
-	def_bool y
-
-config GPIO_STM32_PORTD
-	def_bool y
-
-config GPIO_STM32_PORTE
-	def_bool y
-
-config GPIO_STM32_PORTF
-	def_bool n
-
-config GPIO_STM32_PORTG
-	def_bool n
-
-config GPIO_STM32_PORTH
-	def_bool n
-
-endif # GPIO
-
-
-if SERIAL
-
-config UART_STM32_PORT_1
-	def_bool y
-
-endif # SERIAL
-
-if I2C
-
-config I2C_1
-	def_bool y
-
-config I2C_2
-	def_bool y
-
-endif # I2C
-
-if PWM
-
-config PWM_STM32_1
-	def_bool n
-
-config PWM_STM32_2
-	def_bool y
-
-endif # PWM
-
-if LSM6DSL
-
-config LSM6DSL_I2C_MASTER_DEV_NAME
-	default "I2C_2"
-
-endif #LSM6DSL
-
-if LPS22HB
-
-config LPS22HB_I2C_MASTER_DEV_NAME
-	default "I2C_2"
-
-config LPS22HB_I2C_ADDR
-	default 0x5D
-
-endif #LPS22HB
-
-if LIS3MDL
-
-config LIS3MDL_I2C_MASTER_DEV_NAME
-	default "I2C_2"
+config SPI_STM32_INTERRUPT
+	default y
+	depends on SPI
 
 choice LIS3MDL_TRIGGER_MODE
 	default LIS3MDL_TRIGGER_NONE
 endchoice
 
-config LIS3MDL_I2C_ADDR
-	default 0x1E
-
-endif #LIS3MDL
-
-if HTS221
-
-config HTS221_I2C_MASTER_DEV_NAME
-	default "I2C_2"
-
 choice HTS221_TRIGGER_MODE
 	default HTS221_TRIGGER_NONE
 endchoice
 
-endif #HTS221
+choice LSM6DSL_TRIGGER_MODE
+	default LSM6DSL_TRIGGER_GLOBAL_THREAD
+	depends on LSM6DSL
+endchoice
+
+if BT
+
+config SPI
+	default y
+
+choice BT_HCI_BUS_TYPE
+	default BT_SPI
+endchoice
+
+config BT_SPI_BLUENRG
+	default y
+
+config BT_BLUENRG_ACI
+	default y
+# Disable Flow control
+config BT_HCI_ACL_FLOW_CONTROL
+	default n
+config BT_HCI_VS_EXT
+	default n
+
+endif # BT
+
+if WIFI
+
+config SPI
+	default y
+
+config WIFI_ESWIFI
+	default y
+
+endif # WIFI
 
 endif # BOARD_DISCO_L475_IOT1

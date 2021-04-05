@@ -1,9 +1,0 @@
-identifier: tinytile
-name: tinyTILE
-type: mcu
-arch: x86
-toolchain:
-  - zephyr
-  - issm
-supported:
-  - usb_device

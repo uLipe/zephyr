@@ -1,3 +1,4 @@
 tests:
-  - test:
-      tags: kernel
+  kernel.poll:
+    tags: kernel userspace ignore_faults
+    platform_exclude: nrf52dk_nrf52810

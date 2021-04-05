@@ -5,24 +5,36 @@
  */
 
 #include <syscall_handler.h>
-#include <ipm.h>
+#include <drivers/ipm.h>
 
-_SYSCALL_HANDLER(ipm_send, dev, wait, id, data, size)
+static inline int z_vrfy_ipm_send(const struct device *dev, int wait,
+				  uint32_t id,
+				  const void *data, int size)
 {
-	_SYSCALL_OBJ(dev, K_OBJ_DRIVER_IPM);
-	_SYSCALL_MEMORY_READ(data, size);
-	return _impl_ipm_send((struct device *)dev, wait, id,
-			      (const void *)data, size);
+	Z_OOPS(Z_SYSCALL_DRIVER_IPM(dev, send));
+	Z_OOPS(Z_SYSCALL_MEMORY_READ(data, size));
+	return z_impl_ipm_send((const struct device *)dev, wait, id,
+			       (const void *)data, size);
 }
+#include <syscalls/ipm_send_mrsh.c>
 
-_SYSCALL_HANDLER1_SIMPLE(ipm_max_data_size_get, K_OBJ_DRIVER_IPM,
-			 struct device *);
-
-_SYSCALL_HANDLER1_SIMPLE(ipm_max_id_val_get, K_OBJ_DRIVER_IPM,
-			 struct device *);
-
-_SYSCALL_HANDLER(ipm_set_enabled, dev, enable)
+static inline int z_vrfy_ipm_max_data_size_get(const struct device *dev)
 {
-	_SYSCALL_OBJ(dev, K_OBJ_DRIVER_IPM);
-	return _impl_ipm_set_enabled((struct device *)dev, enable);
+	Z_OOPS(Z_SYSCALL_DRIVER_IPM(dev, max_data_size_get));
+	return z_impl_ipm_max_data_size_get((const struct device *)dev);
 }
+#include <syscalls/ipm_max_data_size_get_mrsh.c>
+
+static inline uint32_t z_vrfy_ipm_max_id_val_get(const struct device *dev)
+{
+	Z_OOPS(Z_SYSCALL_DRIVER_IPM(dev, max_id_val_get));
+	return z_impl_ipm_max_id_val_get((const struct device *)dev);
+}
+#include <syscalls/ipm_max_id_val_get_mrsh.c>
+
+static inline int z_vrfy_ipm_set_enabled(const struct device *dev, int enable)
+{
+	Z_OOPS(Z_SYSCALL_DRIVER_IPM(dev, set_enabled));
+	return z_impl_ipm_set_enabled((const struct device *)dev, enable);
+}
+#include <syscalls/ipm_set_enabled_mrsh.c>

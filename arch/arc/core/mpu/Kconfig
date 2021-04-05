@@ -1,39 +1,38 @@
-# Kconfig - Memory Protection Unit (MPU) configuration options
+# Memory Protection Unit (MPU) configuration options
 
-#
 # Copyright (c) 2017 Synopsys
-#
 # SPDX-License-Identifier: Apache-2.0
-#
+
 config ARC_MPU_VER
-	int
-	prompt "ARC MPU version"
+	int "ARC MPU version"
 	range 2 4
 	default 2
 	help
-	ARC MPU has several versions. For MPU v2, the minimum region is 2048 bytes;
-	For MPU v3, the minimum region is 32 bytes
+	  ARC MPU has several versions. For MPU v2, the minimum region is 2048 bytes;
+	  For MPU v3 and v4, the minimum region is 32 bytes
 
 config ARC_CORE_MPU
 	bool "ARC Core MPU functionalities"
-	depends on CPU_HAS_MPU
-	default n
 	help
 	  ARC core MPU functionalities
 
 config MPU_STACK_GUARD
 	bool "Thread Stack Guards"
-	depends on ARC_CORE_MPU && !ARC_STACK_CHECKING
-	select THREAD_STACK_INFO
-	default n
+	depends on ARC_CORE_MPU && ARC_MPU_VER !=2
 	help
 	  Enable thread stack guards via MPU. ARC supports built-in stack protection.
-	  If your core supports that, it is preferred over MPU stack guard
+	  If your core supports that, it is preferred over MPU stack guard.
+	  For ARC_MPU_VER == 2, it requires 2048 extra bytes and a strong start address
+	  alignment, this will bring big waste of memory, so no support for it.
 
 config ARC_MPU
 	bool "ARC MPU Support"
-	depends on CPU_HAS_MPU
+	select MPU
+	select SRAM_REGION_PERMISSIONS
 	select ARC_CORE_MPU
-	default n
+	select THREAD_STACK_INFO
+	select GEN_PRIV_STACKS if ARC_MPU_VER = 2
+	select MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT if ARC_MPU_VER = 2
+	select MPU_REQUIRES_NON_OVERLAPPING_REGIONS if ARC_MPU_VER = 4
 	help
-	  Target has ARC MPU (currently only works for EMSK 2.2 ARCEM7D)
+	  Target has ARC MPU (currently only works for EMSK 2.2/2.3 ARCEM7D)

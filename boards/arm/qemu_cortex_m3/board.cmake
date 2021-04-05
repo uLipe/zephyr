@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 set(EMU_PLATFORM qemu)
 
 set(QEMU_CPU_TYPE_${ARCH} cortex-m3)
@@ -7,5 +9,4 @@ set(QEMU_FLAGS_${ARCH}
   -nographic
   -vga none
   )
-
-set(DEBUG_SCRIPT qemu.sh)
+board_set_debugger_ifnset(qemu)

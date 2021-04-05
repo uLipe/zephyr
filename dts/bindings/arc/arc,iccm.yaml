@@ -1,26 +1,12 @@
-#
 # Copyright (c) 2017, synopsys
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: ARC ICCM
-id: arc,iccm
-version: 0.1
 
-description: >
-    This binding gives a base representation of the ARC ICCM
+description: ARC ICCM
+
+compatible: "arc,iccm"
+
+include: base.yaml
 
 properties:
-    compatible:
-      type: string
-      category: optional
-      description: compatible strings
-      constraint: "arc,iccm"
-
     reg:
-      type: array
-      description: ICCM memory mapped address space
-      generation: define
-      category: required
-...
+      required: true

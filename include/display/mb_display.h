@@ -8,8 +8,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __MB_DISPLAY_H
-#define __MB_DISPLAY_H
+#ifndef ZEPHYR_INCLUDE_DISPLAY_MB_DISPLAY_H_
+#define ZEPHYR_INCLUDE_DISPLAY_MB_DISPLAY_H_
 
 /**
  * @brief BBC micro:bit display APIs
@@ -21,7 +21,7 @@
 #include <stdio.h>
 #include <zephyr/types.h>
 #include <stdbool.h>
-#include <misc/util.h>
+#include <sys/util.h>
 #include <toolchain.h>
 
 #ifdef __cplusplus
@@ -37,13 +37,13 @@ extern "C" {
 struct mb_image {
 	union {
 		struct {
-			u8_t c1:1,
+			uint8_t c1:1,
 				c2:1,
 				c3:1,
 				c4:1,
 				c5:1;
 		} r[5];
-		u8_t row[5];
+		uint8_t row[5];
 	};
 };
 
@@ -124,12 +124,13 @@ struct mb_display *mb_display_get(void);
  *
  * @param disp      Display object.
  * @param mode      One of the MB_DISPLAY_MODE_* options.
- * @param duration  Duration how long to show each image (in milliseconds).
+ * @param duration  Duration how long to show each image (in milliseconds), or
+ *                  @ref SYS_FOREVER_MS.
  * @param img       Array of image bitmaps (struct mb_image objects).
  * @param img_count Number of images in 'img' array.
  */
-void mb_display_image(struct mb_display *disp, u32_t mode, s32_t duration,
-		      const struct mb_image *img, u8_t img_count);
+void mb_display_image(struct mb_display *disp, uint32_t mode, int32_t duration,
+		      const struct mb_image *img, uint8_t img_count);
 
 /**
  * @brief Print a string of characters on the BBC micro:bit LED display.
@@ -143,12 +144,13 @@ void mb_display_image(struct mb_display *disp, u32_t mode, s32_t duration,
  *
  * @param disp     Display object.
  * @param mode     One of the MB_DISPLAY_MODE_* options.
- * @param duration Duration how long to show each character (in milliseconds).
+ * @param duration Duration how long to show each character (in milliseconds),
+ *                 or @ref SYS_FOREVER_MS.
  * @param fmt      printf-style format string
  * @param ...      Optional list of format arguments.
  */
 __printf_like(4, 5) void mb_display_print(struct mb_display *disp,
-					  u32_t mode, s32_t duration,
+					  uint32_t mode, int32_t duration,
 					  const char *fmt, ...);
 
 /**
@@ -166,4 +168,4 @@ void mb_display_stop(struct mb_display *disp);
  * @}
  */
 
-#endif /* __MB_DISPLAY_H */
+#endif /* ZEPHYR_INCLUDE_DISPLAY_MB_DISPLAY_H_ */

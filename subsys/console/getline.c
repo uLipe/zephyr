@@ -5,7 +5,7 @@
  */
 
 #include <zephyr.h>
-#include <uart.h>
+#include <drivers/uart.h>
 #include <drivers/console/console.h>
 #include <drivers/console/uart_console.h>
 
@@ -34,7 +34,7 @@ void console_getline_init(void)
 {
 	int i;
 
-	for (i = 0; i < sizeof(line_bufs) / sizeof(*line_bufs); i++) {
+	for (i = 0; i < ARRAY_SIZE(line_bufs); i++) {
 		k_fifo_put(&free_queue, &line_bufs[i]);
 	}
 

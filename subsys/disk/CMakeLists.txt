@@ -1,2 +1,3 @@
-zephyr_sources_ifdef(CONFIG_DISK_ACCESS_RAM disk_access_ram.c)
-zephyr_sources_ifdef(CONFIG_DISK_ACCESS_FLASH disk_access_flash.c)
+# SPDX-License-Identifier: Apache-2.0
+
+zephyr_sources_ifdef(CONFIG_DISK_ACCESS disk_access.c)

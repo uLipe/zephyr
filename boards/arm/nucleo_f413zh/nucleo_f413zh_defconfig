@@ -1,21 +1,26 @@
-CONFIG_ARM=y
-CONFIG_BOARD_NUCLEO_F413ZH=y
+# SPDX-License-Identifier: Apache-2.0
+
 CONFIG_SOC_SERIES_STM32F4X=y
-CONFIG_SOC_STM32F413XH=y
+CONFIG_SOC_STM32F413XX=y
 # 96MHz system clock (highest value to get a precise USB clock)
 CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=96000000
-CONFIG_SYS_CLOCK_TICKS_PER_SEC=1000
 
 # Enable MPU
-CONFIG_STM32_ARM_MPU_ENABLE=y
+CONFIG_ARM_MPU=y
 
-# enable USART2 - passthrough to STLINK v2 connector
-CONFIG_UART_STM32_PORT_3=y
+# Enable HW stack protection
+CONFIG_HW_STACK_PROTECTION=y
+
+CONFIG_SERIAL=y
+
+# console
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=y
 
 # enable pinmux
 CONFIG_PINMUX=y
 
-# enable GPIO ports A, B, C, D
+# enable GPIO
 CONFIG_GPIO=y
 
 # clock configuration

@@ -1,8 +1,8 @@
 sample:
-  description: TBD
-  name: TBD
+  name: BMC150 Magnetometer Sample
 tests:
-  - test:
-      build_only: true
-      platform_whitelist: quark_d2000_crb
-      tags: samples
+  sample.sensor.magn_polling:
+    harness: sensor
+    tags: sensors
+    depends_on: i2c gpio
+    filter: dt_compat_enabled("bosch,bmc150_magn")

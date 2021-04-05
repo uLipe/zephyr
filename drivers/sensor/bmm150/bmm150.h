@@ -6,22 +6,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _SENSOR_BMM150_H_
-#define _SENSOR_BMM150_H_
+#ifndef ZEPHYR_DRIVERS_SENSOR_BMM150_BMM150_H_
+#define ZEPHYR_DRIVERS_SENSOR_BMM150_BMM150_H_
 
 
 #include <zephyr/types.h>
-#include <i2c.h>
+#include <drivers/i2c.h>
 #include <stdint.h>
-#include <misc/util.h>
+#include <sys/util.h>
 
 #include <kernel.h>
 #include <device.h>
-#include <sensor.h>
-#include <misc/byteorder.h>
-#include <misc/__assert.h>
-#include <gpio.h>
-
+#include <drivers/sensor.h>
+#include <sys/byteorder.h>
+#include <sys/__assert.h>
+#include <drivers/gpio.h>
 
 #define BMM150_REG_CHIP_ID         0x40
 #define BMM150_CHIP_ID_VAL         0x32
@@ -83,14 +82,14 @@
 #define BMM150_MASK_DRDY_LATCHING          BIT(1)
 #define BMM150_MASK_DRDY_INT3_POLARITY     BIT(0)
 
-#define BMM150_I2C_ADDR                    CONFIG_BMM150_I2C_ADDR
+#define BMM150_I2C_ADDR                    DT_INST_REG_ADDR(0)
 
 #if defined(CONFIG_BMM150_SAMPLING_REP_XY) || \
 	defined(CONFIG_BMM150_SAMPLING_REP_Z)
 	#define BMM150_SET_ATTR_REP
 #endif
 
-#if defined(CONFIG_BMM150_MAGN_SAMPLING_RATE_RUNTIME) || \
+#if defined(CONFIG_BMM150_SAMPLING_RATE_RUNTIME) || \
 	defined(BMM150_MAGN_SET_ATTR_REP)
 	#define BMM150_MAGN_SET_ATTR
 #endif
@@ -98,28 +97,28 @@
 
 struct bmm150_config {
 	char *i2c_master_dev_name;
-	u16_t i2c_slave_addr;
+	uint16_t i2c_slave_addr;
 };
 
 struct bmm150_trim_regs {
-	s8_t x1;
-	s8_t y1;
-	u16_t reserved1;
-	u8_t reserved2;
-	s16_t z4;
-	s8_t x2;
-	s8_t y2;
-	u16_t reserved3;
-	s16_t z2;
-	u16_t z1;
-	u16_t xyz1;
-	s16_t z3;
-	s8_t xy2;
-	u8_t xy1;
+	int8_t x1;
+	int8_t y1;
+	uint16_t reserved1;
+	uint8_t reserved2;
+	int16_t z4;
+	int8_t x2;
+	int8_t y2;
+	uint16_t reserved3;
+	int16_t z2;
+	uint16_t z1;
+	uint16_t xyz1;
+	int16_t z3;
+	int8_t xy2;
+	uint8_t xy1;
 } __packed;
 
 struct bmm150_data {
-	struct device *i2c;
+	const struct device *i2c;
 	struct k_sem sem;
 	struct bmm150_trim_regs tregs;
 	int rep_xy, rep_z, odr, max_odr;
@@ -158,7 +157,4 @@ enum bmm150_presets {
 	#define BMM150_DEFAULT_PRESET BMM150_HIGH_ACCURACY_PRESET
 #endif
 
-#define SYS_LOG_DOMAIN "BMM150"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
 #endif /* __SENSOR_BMM150_H__ */

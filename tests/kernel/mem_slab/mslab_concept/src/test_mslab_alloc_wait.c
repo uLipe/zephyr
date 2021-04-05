@@ -4,33 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @addtogroup t_mslab
- * @{
- * @defgroup t_mslab_concept test_mslab_concept
- * @brief TestPurpose: verify memory slab concepts.
- * @details All TESTPOINTs extracted from kernel documentation.
- * TESTPOINTs cover testable kernel behaviors that preserve across internal
- * implementation change or kernel version change.
- * As a black-box test, TESTPOINTs do not cover internal operations.
- *
- * TESTPOINTs duplicated to <kernel.h> are covered in API test:
- * - TESTPOINT: ensure that all memory blocks in the buffer are similarly
- * aligned to this boundary
- * - TESTPOINT: A memory slab must be initialized before it can be used. This
- * marks all of its blocks as unused.
- *
- * TESTPOINTS related to multiple instances are covered in re-entrance test:
- * - TESTPOINT: Unlike a heap, more than one memory slab can be defined, if
- * needed.
- * @}
- */
-
 #include <ztest.h>
 #include "test_mslab.h"
 
 #define THREAD_NUM 3
-#define STACK_SIZE 512
+#define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACKSIZE)
 
 K_MEM_SLAB_DEFINE(mslab1, BLK_SIZE, BLK_NUM, BLK_ALIGN);
 
@@ -56,6 +34,20 @@ void tmslab_alloc_wait_ok(void *p1, void *p2, void *p3)
 }
 
 /*test cases*/
+/**
+ * @brief Verify alloc with multiple threads
+ *
+ * @details The test allocates all blocks of memory slab and
+ * then spawns 3 threads with lowest priority and 2 more with
+ * same priority higher than first thread with delay 10ms and
+ * 20ms. Checks the behavior of alloc when requested by multiple
+ * threads
+ *
+ * @ingroup kernel_memory_slab_tests
+ *
+ * @see k_mem_slab_alloc()
+ * @see k_mem_slab_free()
+ */
 void test_mslab_alloc_wait_prio(void)
 {
 	void *block[BLK_NUM];
@@ -80,17 +72,17 @@ void test_mslab_alloc_wait_prio(void)
 	/*the low-priority thread*/
 	tid[0] = k_thread_create(&tdata[0], tstack[0], STACK_SIZE,
 				 tmslab_alloc_wait_timeout, NULL, NULL, NULL,
-				 K_PRIO_PREEMPT(1), 0, 0);
+				 K_PRIO_PREEMPT(1), 0, K_NO_WAIT);
 	/*the highest-priority thread that has waited the longest*/
 	tid[1] = k_thread_create(&tdata[1], tstack[1], STACK_SIZE,
 				 tmslab_alloc_wait_ok, NULL, NULL, NULL,
-				 K_PRIO_PREEMPT(0), 0, 10);
+				 K_PRIO_PREEMPT(0), 0, K_MSEC(10));
 	/*the highest-priority thread that has waited shorter*/
 	tid[2] = k_thread_create(&tdata[2], tstack[2], STACK_SIZE,
 				 tmslab_alloc_wait_timeout, NULL, NULL, NULL,
-				 K_PRIO_PREEMPT(0), 0, 20);
+				 K_PRIO_PREEMPT(0), 0, K_MSEC(20));
 	/*relinquish CPU for above threads to start */
-	k_sleep(30);
+	k_msleep(30);
 	/*free one block, expected to unblock thread "tid[1]"*/
 	k_mem_slab_free(&mslab1, &block[0]);
 	/*wait for all threads exit*/

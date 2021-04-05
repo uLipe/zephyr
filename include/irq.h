@@ -8,14 +8,15 @@
  * @file
  * @brief Public interface for configuring interrupts
  */
-#ifndef _IRQ_H_
-#define _IRQ_H_
+#ifndef ZEPHYR_INCLUDE_IRQ_H_
+#define ZEPHYR_INCLUDE_IRQ_H_
 
 /* Pull in the arch-specific implementations */
 #include <arch/cpu.h>
 
 #ifndef _ASMLANGUAGE
 #include <toolchain.h>
+#include <zephyr/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,11 +44,31 @@ extern "C" {
  * @param isr_p Address of interrupt service routine.
  * @param isr_param_p Parameter passed to interrupt service routine.
  * @param flags_p Architecture-specific IRQ configuration flags..
- *
- * @return Interrupt vector assigned to this interrupt.
  */
 #define IRQ_CONNECT(irq_p, priority_p, isr_p, isr_param_p, flags_p) \
-	_ARCH_IRQ_CONNECT(irq_p, priority_p, isr_p, isr_param_p, flags_p)
+	ARCH_IRQ_CONNECT(irq_p, priority_p, isr_p, isr_param_p, flags_p)
+
+/**
+ * Configure a dynamic interrupt.
+ *
+ * Use this instead of IRQ_CONNECT() if arguments cannot be known at build time.
+ *
+ * @param irq IRQ line number
+ * @param priority Interrupt priority
+ * @param routine Interrupt service routine
+ * @param parameter ISR parameter
+ * @param flags Arch-specific IRQ configuration flags
+ *
+ * @return The vector assigned to this interrupt
+ */
+static inline int
+irq_connect_dynamic(unsigned int irq, unsigned int priority,
+		    void (*routine)(const void *parameter),
+		    const void *parameter, uint32_t flags)
+{
+	return arch_irq_connect_dynamic(irq, priority, routine, parameter,
+					flags);
+}
 
 /**
  * @brief Initialize a 'direct' interrupt handler.
@@ -86,11 +107,9 @@ extern "C" {
  * @param priority_p Interrupt priority.
  * @param isr_p Address of interrupt service routine.
  * @param flags_p Architecture-specific IRQ configuration flags.
- *
- * @return Interrupt vector assigned to this interrupt.
  */
 #define IRQ_DIRECT_CONNECT(irq_p, priority_p, isr_p, flags_p) \
-	_ARCH_IRQ_DIRECT_CONNECT(irq_p, priority_p, isr_p, flags_p)
+	ARCH_IRQ_DIRECT_CONNECT(irq_p, priority_p, isr_p, flags_p)
 
 /**
  * @brief Common tasks before executing the body of an ISR
@@ -99,7 +118,7 @@ extern "C" {
  * minimal architecture-specific tasks before the ISR itself can run. It takes
  * no arguments and has no return value.
  */
-#define ISR_DIRECT_HEADER() _ARCH_ISR_DIRECT_HEADER()
+#define ISR_DIRECT_HEADER() ARCH_ISR_DIRECT_HEADER()
 
 /**
  * @brief Common tasks before exiting the body of an ISR
@@ -108,16 +127,16 @@ extern "C" {
  * minimal architecture-specific tasks like EOI. It has no return value.
  *
  * In a normal interrupt, a check is done at end of interrupt to invoke
- * _Swap() logic if the current thread is preemptible and there is another
+ * z_swap() logic if the current thread is preemptible and there is another
  * thread ready to run in the kernel's ready queue cache. This is now optional
  * and controlled by the check_reschedule argument. If unsure, set to nonzero.
  * On systems that do stack switching and nested interrupt tracking in software,
- * _Swap() should only be called if this was a non-nested interrupt.
+ * z_swap() should only be called if this was a non-nested interrupt.
  *
  * @param check_reschedule If nonzero, additionally invoke scheduling logic
  */
 #define ISR_DIRECT_FOOTER(check_reschedule) \
-	_ARCH_ISR_DIRECT_FOOTER(check_reschedule)
+	ARCH_ISR_DIRECT_FOOTER(check_reschedule)
 
 /**
  * @brief Perform power management idle exit logic
@@ -127,7 +146,7 @@ extern "C" {
  * exit power management idle state. It takes no parameters and returns no
  * arguments. It may be omitted, but be careful!
  */
-#define ISR_DIRECT_PM() _ARCH_ISR_DIRECT_PM()
+#define ISR_DIRECT_PM() ARCH_ISR_DIRECT_PM()
 
 /**
  * @brief Helper macro to declare a direct interrupt service routine.
@@ -149,7 +168,7 @@ extern "C" {
  *	bool done = do_stuff();
  *	ISR_DIRECT_PM(); <-- done after do_stuff() due to latency concerns
  *	if (!done) {
- *		return 0;  <-- Don't bother checking if we have to _Swap()
+ *		return 0;  <-- Don't bother checking if we have to z_swap()
  *	}
  *	k_sem_give(some_sem);
  *	return 1;
@@ -157,21 +176,30 @@ extern "C" {
  *
  * @param name symbol name of the ISR
  */
-#define ISR_DIRECT_DECLARE(name) _ARCH_ISR_DIRECT_DECLARE(name)
+#define ISR_DIRECT_DECLARE(name) ARCH_ISR_DIRECT_DECLARE(name)
 
 /**
  * @brief Lock interrupts.
+ * @def irq_lock()
  *
  * This routine disables all interrupts on the CPU. It returns an unsigned
  * integer "lock-out key", which is an architecture-dependent indicator of
  * whether interrupts were locked prior to the call. The lock-out key must be
  * passed to irq_unlock() to re-enable interrupts.
  *
+ * @note
+ * This routine must also serve as a memory barrier to ensure the uniprocessor
+ * implementation of `k_spinlock_t` is correct.
+ *
  * This routine can be called recursively, as long as the caller keeps track
  * of each lock-out key that is generated. Interrupts are re-enabled by
  * passing each of the keys to irq_unlock() in the reverse order they were
  * acquired. (That is, each call to irq_lock() must be balanced by
  * a corresponding call to irq_unlock().)
+ *
+ * This routine can only be invoked from supervisor mode. Some architectures
+ * (for example, ARM) will fail silently if invoked from user mode instead
+ * of generating an exception.
  *
  * @note
  * This routine can be called by ISRs or by threads. If it is called by a
@@ -188,17 +216,32 @@ extern "C" {
  * The lock-out key should never be used to manually re-enable interrupts
  * or to inspect or manipulate the contents of the CPU's interrupt bits.
  *
- * @return Lock-out key.
+ * @return An architecture-dependent lock-out key representing the
+ *         "interrupt disable state" prior to the call.
  */
-#define irq_lock() _arch_irq_lock()
+#ifdef CONFIG_SMP
+unsigned int z_smp_global_lock(void);
+#define irq_lock() z_smp_global_lock()
+#else
+#define irq_lock() arch_irq_lock()
+#endif
 
 /**
  * @brief Unlock interrupts.
+ * @def irq_unlock()
  *
  * This routine reverses the effect of a previous call to irq_lock() using
  * the associated lock-out key. The caller must call the routine once for
  * each time it called irq_lock(), supplying the keys in the reverse order
  * they were acquired, before interrupts are enabled.
+ *
+ * @note
+ * This routine must also serve as a memory barrier to ensure the uniprocessor
+ * implementation of `k_spinlock_t` is correct.
+ *
+ * This routine can only be invoked from supervisor mode. Some architectures
+ * (for example, ARM) will fail silently if invoked from user mode instead
+ * of generating an exception.
  *
  * @note Can be called by ISRs.
  *
@@ -206,7 +249,140 @@ extern "C" {
  *
  * @return N/A
  */
-#define irq_unlock(key) _arch_irq_unlock(key)
+#ifdef CONFIG_SMP
+void z_smp_global_unlock(unsigned int key);
+#define irq_unlock(key) z_smp_global_unlock(key)
+#else
+#define irq_unlock(key) arch_irq_unlock(key)
+#endif
+
+/**
+ * @brief Return IRQ level
+ * @def irq_get_level()
+ *
+ * This routine returns the interrupt level number of the provided interrupt.
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 1 if IRQ level 1, 2 if IRQ level 2, 3 if IRQ level 3
+ */
+static inline unsigned int irq_get_level(unsigned int irq)
+{
+#if defined(CONFIG_3RD_LEVEL_INTERRUPTS)
+	return ((irq >> 16) & 0xFF) != 0 ? 3 :
+		(((irq >> 8) & 0xFF) == 0 ? 1 : 2);
+#elif defined(CONFIG_2ND_LEVEL_INTERRUPTS)
+	return ((irq >> 8) & 0xFF) == 0 ? 1 : 2;
+#else
+	ARG_UNUSED(irq);
+
+	return 1;
+#endif
+}
+
+#ifdef CONFIG_2ND_LEVEL_INTERRUPTS
+/**
+ * @brief Return the 2nd level interrupt number
+ * @def irq_from_level_2()
+ *
+ * This routine returns the second level irq number of the zephyr irq
+ * number passed in
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 2nd level IRQ number
+ */
+static inline unsigned int irq_from_level_2(unsigned int irq)
+{
+#ifdef CONFIG_3RD_LEVEL_INTERRUPTS
+	return ((irq >> 8) & 0xFF) - 1;
+#else
+	return (irq >> 8) - 1;
+#endif
+}
+
+/**
+ * @brief Converts irq from level 1 to level 2 format
+ * @def irq_to_level_2()
+ *
+ * This routine converts the input into the level 2 irq number format
+ *
+ * @note Values >= 0xFF are invalid
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 2nd level IRQ number
+ */
+static inline unsigned int irq_to_level_2(unsigned int irq)
+{
+	return (irq + 1) << 8;
+}
+
+/**
+ * @brief Returns the parent IRQ of the level 2 raw IRQ number
+ * @def irq_parent_level_2()
+ *
+ * The parent of a 2nd level interrupt is in the 1st byte
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 2nd level IRQ parent
+ */
+static inline unsigned int irq_parent_level_2(unsigned int irq)
+{
+	return irq & 0xFF;
+}
+#endif
+
+#ifdef CONFIG_3RD_LEVEL_INTERRUPTS
+/**
+ * @brief Return the 3rd level interrupt number
+ * @def irq_from_level_3()
+ *
+ * This routine returns the third level irq number of the zephyr irq
+ * number passed in
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 3rd level IRQ number
+ */
+static inline unsigned int irq_from_level_3(unsigned int irq)
+{
+	return (irq >> 16) - 1;
+}
+
+/**
+ * @brief Converts irq from level 1 to level 3 format
+ * @def irq_to_level_3()
+ *
+ * This routine converts the input into the level 3 irq number format
+ *
+ * @note Values >= 0xFF are invalid
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 3rd level IRQ number
+ */
+static inline unsigned int irq_to_level_3(unsigned int irq)
+{
+	return (irq + 1) << 16;
+}
+
+/**
+ * @brief Returns the parent IRQ of the level 3 raw IRQ number
+ * @def irq_parent_level_3()
+ *
+ * The parent of a 3rd level interrupt is in the 2nd byte
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 3rd level IRQ parent
+ */
+static inline unsigned int irq_parent_level_3(unsigned int irq)
+{
+	return (irq >> 8) & 0xFF;
+}
+#endif
 
 /**
  * @brief Enable an IRQ.
@@ -217,7 +393,7 @@ extern "C" {
  *
  * @return N/A
  */
-#define irq_enable(irq) _arch_irq_enable(irq)
+#define irq_enable(irq) arch_irq_enable(irq)
 
 /**
  * @brief Disable an IRQ.
@@ -228,7 +404,7 @@ extern "C" {
  *
  * @return N/A
  */
-#define irq_disable(irq) _arch_irq_disable(irq)
+#define irq_disable(irq) arch_irq_disable(irq)
 
 /**
  * @brief Get IRQ enable state.
@@ -239,7 +415,7 @@ extern "C" {
  *
  * @return interrupt enable state, true or false
  */
-#define irq_is_enabled(irq) _arch_irq_is_enabled(irq)
+#define irq_is_enabled(irq) arch_irq_is_enabled(irq)
 
 /**
  * @}
@@ -250,4 +426,4 @@ extern "C" {
 #endif
 
 #endif /* ASMLANGUAGE */
-#endif /* _IRQ_H_ */
+#endif /* ZEPHYR_INCLUDE_IRQ_H_ */

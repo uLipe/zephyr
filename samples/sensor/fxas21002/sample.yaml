@@ -1,8 +1,7 @@
 sample:
-  description: TBD
-  name: TBD
+  name: FXAS21002 Gyroscope Sensor Sample
 tests:
-  - test:
-      build_only: true
-      platform_whitelist: hexiwear_k64
-      tags: samples sensor
+  sample.sensor.fxas21002:
+    harness: sensor
+    tags: sensors
+    platform_allow: hexiwear_k64 warp7_m4

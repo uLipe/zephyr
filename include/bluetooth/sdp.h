@@ -7,8 +7,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef __BT_SDP_H
-#define __BT_SDP_H
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_SDP_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_SDP_H_
 
 /**
  * @brief Service Discovery Protocol (SDP)
@@ -17,12 +17,12 @@
  * @{
  */
 
+#include <bluetooth/uuid.h>
+#include <bluetooth/conn.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <bluetooth/uuid.h>
-#include <bluetooth/conn.h>
 
 /*
  * All definitions are based on Bluetooth Assigned Numbers
@@ -271,24 +271,24 @@ extern "C" {
 
 /** @brief SDP Generic Data Element Value. */
 struct bt_sdp_data_elem {
-	u8_t        type;
-	u32_t       data_size;
-	u32_t       total_size;
+	uint8_t        type;
+	uint32_t       data_size;
+	uint32_t       total_size;
 	const void *data;
 };
 
 /** @brief SDP Attribute Value. */
 struct bt_sdp_attribute {
-	u16_t                id;  /* Attribute ID */
+	uint16_t                id;  /* Attribute ID */
 	struct bt_sdp_data_elem val; /* Attribute data */
 };
 
 /** @brief SDP Service Record Value. */
 struct bt_sdp_record {
-	u32_t                    handle;     /* Redundant, for quick ref */
+	uint32_t                    handle;     /* Redundant, for quick ref */
 	struct bt_sdp_attribute *attrs;      /* Base addr of attr array */
 	size_t                   attr_count; /* Number of attributes */
-	u8_t                     index;      /* Index of the record in LL */
+	uint8_t                     index;      /* Index of the record in LL */
 	struct bt_sdp_record    *next;
 };
 
@@ -301,17 +301,17 @@ struct bt_sdp_record {
 /** @def BT_SDP_ARRAY_8
  *  @brief Declare an array of 8-bit elements in an attribute.
  */
-#define BT_SDP_ARRAY_8(...) ((u8_t[]) {__VA_ARGS__})
+#define BT_SDP_ARRAY_8(...) ((uint8_t[]) {__VA_ARGS__})
 
 /** @def BT_SDP_ARRAY_16
  *  @brief Declare an array of 16-bit elements in an attribute.
  */
-#define BT_SDP_ARRAY_16(...) ((u16_t[]) {__VA_ARGS__})
+#define BT_SDP_ARRAY_16(...) ((uint16_t[]) {__VA_ARGS__})
 
 /** @def BT_SDP_ARRAY_32
  *  @brief Declare an array of 32-bit elements in an attribute.
  */
-#define BT_SDP_ARRAY_32(...) ((u32_t[]) {__VA_ARGS__})
+#define BT_SDP_ARRAY_32(...) ((uint32_t[]) {__VA_ARGS__})
 
 /** @def BT_SDP_TYPE_SIZE
  *  @brief Declare a fixed-size data element header.
@@ -506,7 +506,7 @@ enum {
  *  record data and continue discovery for given UUID. By returning
  *  BT_SDP_DISCOVER_UUID_CONTINUE user allows this discovery continuation.
  */
-typedef u8_t (*bt_sdp_discover_func_t)
+typedef uint8_t (*bt_sdp_discover_func_t)
 		(struct bt_conn *conn, struct bt_sdp_client_result *result);
 
 /** @brief Main user structure used in SDP discovery of remote. */
@@ -556,8 +556,8 @@ int bt_sdp_discover_cancel(struct bt_conn *conn,
 
 /** @brief Protocols to be asked about specific parameters */
 enum bt_sdp_proto {
-	BT_SDP_PROTO_RFCOMM = BT_UUID_RFCOMM_VAL,
-	BT_SDP_PROTO_L2CAP  = BT_UUID_L2CAP_VAL,
+	BT_SDP_PROTO_RFCOMM = 0x0003,
+	BT_SDP_PROTO_L2CAP  = 0x0100,
 };
 
 /** @brief Give to user parameter value related to given stacked protocol UUID.
@@ -573,7 +573,7 @@ enum bt_sdp_proto {
  *  value is found, or negative if error occurred during processing.
  */
 int bt_sdp_get_proto_param(const struct net_buf *buf, enum bt_sdp_proto proto,
-			   u16_t *param);
+			   uint16_t *param);
 
 /** @brief Get profile version.
  *
@@ -587,8 +587,8 @@ int bt_sdp_get_proto_param(const struct net_buf *buf, enum bt_sdp_proto proto,
  *
  *  @return 0 on success, negative value if error occurred during processing.
  */
-int bt_sdp_get_profile_version(const struct net_buf *buf, u16_t profile,
-			       u16_t *version);
+int bt_sdp_get_profile_version(const struct net_buf *buf, uint16_t profile,
+			       uint16_t *version);
 
 /** @brief Get SupportedFeatures attribute value
  *
@@ -600,7 +600,8 @@ int bt_sdp_get_profile_version(const struct net_buf *buf, u16_t profile,
  *
  *  @return 0 on success if feature found and valid, negative in case any error
  */
-int bt_sdp_get_features(const struct net_buf *buf, u16_t *features);
+int bt_sdp_get_features(const struct net_buf *buf, uint16_t *features);
+
 #ifdef __cplusplus
 }
 #endif
@@ -609,4 +610,4 @@ int bt_sdp_get_features(const struct net_buf *buf, u16_t *features);
  * @}
  */
 
-#endif /* __BT_SDP_H */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_SDP_H_ */

@@ -10,8 +10,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __TRICKLE_H
-#define __TRICKLE_H
+#ifndef ZEPHYR_INCLUDE_NET_TRICKLE_H_
+#define ZEPHYR_INCLUDE_NET_TRICKLE_H_
 
 #include <stdbool.h>
 #include <zephyr/types.h>
@@ -32,32 +32,43 @@ extern "C" {
 
 struct net_trickle;
 
+/**
+ * @typedef net_trickle_cb_t
+ * @brief Trickle timer callback.
+ *
+ * @details The callback is called after Trickle timeout expires.
+ *
+ * @param trickle The trickle context to use.
+ * @param do_suppress Is TX allowed (true) or not (false).
+ * @param user_data The user data given in net_trickle_start() call.
+ */
 typedef void (*net_trickle_cb_t)(struct net_trickle *trickle,
 				 bool do_suppress, void *user_data);
 
-/*
- * The variable names are taken directly from RFC when applicable.
+/**
+ * The variable names are taken directly from RFC 6206 when applicable.
  * Note that the struct members should not be accessed directly but
  * only via the Trickle API.
  */
 struct net_trickle {
-	u32_t Imin;		/* Min interval size in ms */
-	u8_t Imax;		/* Max number of doublings */
-	u8_t k;			/* Redundancy constant */
+	uint32_t Imin;		/**< Min interval size in ms */
+	uint8_t Imax;		/**< Max number of doublings */
+	uint8_t k;		/**< Redundancy constant */
 
-	u32_t I;		/* Current interval size */
-	u32_t Istart;		/* Start of the interval in ms */
-	u8_t c;			/* Consistency counter */
+	uint32_t I;		/**< Current interval size */
+	uint32_t Istart;	/**< Start of the interval in ms */
+	uint8_t c;		/**< Consistency counter */
 
-	u32_t Imax_abs;		/* Max interval size in ms (not doublings)
-				 */
+	uint32_t Imax_abs;	/**< Max interval size in ms (not doublings) */
 
 	struct k_delayed_work timer;
-	net_trickle_cb_t cb;	/* Callback to be called when timer expires */
+	net_trickle_cb_t cb;	/**< Callback to be called when timer expires */
 	void *user_data;
 };
 
+/** @cond INTERNAL_HIDDEN */
 #define NET_TRICKLE_INFINITE_REDUNDANCY 0
+/** @endcond */
 
 /**
  * @brief Create a Trickle timer.
@@ -70,9 +81,9 @@ struct net_trickle {
  * @return Return 0 if ok and <0 if error.
  */
 int net_trickle_create(struct net_trickle *trickle,
-		       u32_t Imin,
-		       u8_t Imax,
-		       u8_t k);
+		       uint32_t Imin,
+		       uint8_t Imax,
+		       uint8_t k);
 
 /**
  * @brief Start a Trickle timer.
@@ -124,7 +135,7 @@ static inline bool net_trickle_is_running(struct net_trickle *trickle)
 {
 	NET_ASSERT(trickle);
 
-	return trickle->I != 0;
+	return trickle->I != 0U;
 }
 
 /**
@@ -135,4 +146,4 @@ static inline bool net_trickle_is_running(struct net_trickle *trickle)
 }
 #endif
 
-#endif /* __TRICKLE_H */
+#endif /* ZEPHYR_INCLUDE_NET_TRICKLE_H_ */

@@ -1,9 +1,10 @@
 sample:
-  description: TBD
-  name: TBD
+  name: Console over USB
 tests:
-  - test:
-      build_only: true
-      depends_on: usb_device
-      platform_whitelist: arduino_101
-      tags: usb
+  sample.usb.console:
+    depends_on: usb_device usb_cdc
+    tags: usb
+    platform_exclude: native_posix native_posix_64
+    harness: console
+    harness_config:
+      fixture: fixture_usb_cdc

@@ -6,10 +6,10 @@
  *
  */
 
-#ifndef _SENSOR_HP206C_H_
-#define _SENSOR_HP206C_H_
+#ifndef ZEPHYR_DRIVERS_SENSOR_HP206C_HP206C_H_
+#define ZEPHYR_DRIVERS_SENSOR_HP206C_HP206C_H_
 
-#include <misc/util.h>
+#include <sys/util.h>
 
 #define HP206C_I2C_ADDRESS				0x76
 
@@ -73,15 +73,12 @@
 /* end of default settings */
 
 struct hp206c_device_data {
-	struct device *i2c;
-#if CONFIG_SYS_CLOCK_TICKS_PER_SEC != 1000
+	const struct device *i2c;
+#if CONFIG_SYS_CLOCK_TICKS_PER_SEC < 1000
 #error "driver needs millisecond tick granularity"
 #endif
 	struct k_timer tmr;
-	u8_t osr;
+	uint8_t osr;
 };
 
-#define SYS_LOG_DOMAIN "HP206C"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* _SENSOR_HP206C_H_ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_HP206C_HP206C_H_ */

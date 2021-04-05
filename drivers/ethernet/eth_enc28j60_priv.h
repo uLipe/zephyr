@@ -6,7 +6,7 @@
  */
 
 #include <kernel.h>
-#include <gpio.h>
+#include <drivers/gpio.h>
 
 #ifndef _ENC28J60_
 #define _ENC28J60_
@@ -99,12 +99,12 @@
 #define ENC28J60_REG_MIRDH    0x2219
 
 /* Bank 3 Registers */
-#define ENC28J60_REG_MAADR1   0x1300
-#define ENC28J60_REG_MAADR0   0x1301
+#define ENC28J60_REG_MAADR5   0x1300
+#define ENC28J60_REG_MAADR6   0x1301
 #define ENC28J60_REG_MAADR3   0x1302
-#define ENC28J60_REG_MAADR2   0x1303
-#define ENC28J60_REG_MAADR5   0x1304
-#define ENC28J60_REG_MAADR4   0x1305
+#define ENC28J60_REG_MAADR4   0x1303
+#define ENC28J60_REG_MAADR1   0x1304
+#define ENC28J60_REG_MAADR2   0x1305
 #define ENC28J60_REG_EBSTSD   0x0306
 #define ENC28J60_REG_EBSTCON  0x0307
 #define ENC28J60_REG_EBSTCSL  0x0308
@@ -215,28 +215,31 @@
 
 struct eth_enc28j60_config {
 	const char *gpio_port;
-	u8_t gpio_pin;
+	uint8_t gpio_pin;
+	gpio_dt_flags_t gpio_flags;
 	const char *spi_port;
-	u32_t spi_freq;
-	u8_t spi_slave;
-	u8_t full_duplex;
-	s32_t timeout;
+	gpio_pin_t spi_cs_pin;
+	gpio_dt_flags_t spi_cs_dt_flags;
+	const char *spi_cs_port;
+	uint32_t spi_freq;
+	uint8_t spi_slave;
+	uint8_t full_duplex;
+	int32_t timeout;
 };
 
 struct eth_enc28j60_runtime {
 	struct net_if *iface;
-	K_THREAD_STACK_MEMBER(thread_stack,
+	K_KERNEL_STACK_MEMBER(thread_stack,
 			      CONFIG_ETH_ENC28J60_RX_THREAD_STACK_SIZE);
 	struct k_thread thread;
-	struct device *gpio;
-	struct device *spi;
+	uint8_t mac_address[6];
+	const struct device *gpio;
+	const struct device *spi;
+	struct spi_cs_control spi_cs;
+	struct spi_config spi_cfg;
 	struct gpio_callback gpio_cb;
-	u8_t mem_buf[MAX_BUFFER_LENGTH + 1];
-	u8_t  tx_tsv[TSV_SIZE];
-	u8_t  rx_rsv[RSV_SIZE];
 	struct k_sem tx_rx_sem;
 	struct k_sem int_sem;
-	struct k_sem spi_sem;
 };
 
 #endif /*_ENC28J60_*/

@@ -1,12 +1,8 @@
-if(BOARD STREQUAL bbc_microbit)
-  set(CONF_FILE microbit.conf)
-else()
-  set(CONF_FILE nrf5.conf)
-endif()
+# SPDX-License-Identifier: Apache-2.0
 
-include($ENV{ZEPHYR_BASE}/cmake/app/boilerplate.cmake NO_POLICY_SCOPE)
-project(NONE)
+cmake_minimum_required(VERSION 3.13.1)
 
-target_link_libraries(app subsys__bluetooth)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(hci_uart)
 
 target_sources(app PRIVATE src/main.c)

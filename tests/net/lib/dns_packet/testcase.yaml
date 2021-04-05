@@ -1,5 +1,6 @@
 tests:
-  - test:
-      min_ram: 16
-      tags: dns net
-      timeout: 200
+  net.dns:
+    min_ram: 16
+    tags: dns net
+    timeout: 200
+    depends_on: netif

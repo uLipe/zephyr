@@ -1,5 +1,0 @@
-tests:
-  - test:
-      tags: net crc
-      timeout: 5
-      type: unit

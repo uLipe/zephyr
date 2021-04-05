@@ -7,37 +7,84 @@
  * @brief Atmel SAM MCU family Ethernet MAC (GMAC) driver.
  */
 
-#ifndef _ETH_SAM_GMAC_PRIV_H_
-#define _ETH_SAM_GMAC_PRIV_H_
+#ifndef ZEPHYR_DRIVERS_ETHERNET_ETH_SAM_GMAC_PRIV_H_
+#define ZEPHYR_DRIVERS_ETHERNET_ETH_SAM_GMAC_PRIV_H_
 
 #include <zephyr/types.h>
 
-#define GMAC_MTU 1500
+#define ATMEL_OUI_B0 0x00
+#define ATMEL_OUI_B1 0x04
+#define ATMEL_OUI_B2 0x25
+
+/* This option enables support to push multiple packets to the DMA engine.
+ * This currently doesn't work given the current version of net_pkt or
+ * net_buf does not allowed access from multiple threads. This option is
+ * therefore currently disabled.
+ */
+#define GMAC_MULTIPLE_TX_PACKETS 0
+
+#define GMAC_MTU NET_ETH_MTU
 #define GMAC_FRAME_SIZE_MAX (GMAC_MTU + 18)
 
+/** Cache alignment */
+#define GMAC_DCACHE_ALIGNMENT           32
 /** Memory alignment of the RX/TX Buffer Descriptor List */
-#define GMAC_DESC_ALIGNMENT               4
+#define GMAC_DESC_ALIGNMENT             4
 /** Total number of queues supported by GMAC hardware module */
-#define GMAC_QUEUE_NO                     3
-/** RX descriptors count for main queue */
-#define MAIN_QUEUE_RX_DESC_COUNT CONFIG_ETH_SAM_GMAC_BUF_RX_COUNT
-/** TX descriptors count for main queue */
-#define MAIN_QUEUE_TX_DESC_COUNT (CONFIG_NET_BUF_TX_COUNT + 1)
-/** RX/TX descriptors count for priority queues */
-#define PRIORITY_QUEUE_DESC_COUNT         1
+#define GMAC_QUEUE_NUM                  DT_INST_PROP(0, num_queues)
+#define GMAC_PRIORITY_QUEUE_NUM         (GMAC_QUEUE_NUM - 1)
+#if (GMAC_PRIORITY_QUEUE_NUM >= 1)
+BUILD_ASSERT(ARRAY_SIZE(GMAC->GMAC_TBQBAPQ) + 1 == GMAC_QUEUE_NUM,
+	     "GMAC_QUEUE_NUM doesn't match soc header");
+#endif
+/** Number of priority queues used */
+#define GMAC_ACTIVE_QUEUE_NUM           (CONFIG_ETH_SAM_GMAC_QUEUES)
+#define GMAC_ACTIVE_PRIORITY_QUEUE_NUM  (GMAC_ACTIVE_QUEUE_NUM - 1)
 
-/* FIXME change to
- * #if __DCACHE_PRESENT == 1
- * when cache support is added
- */
-#if 0
-#define DCACHE_INVALIDATE(addr, size) \
-		SCB_InvalidateDCache_by_Addr((u32_t *)addr, size)
-#define DCACHE_CLEAN(addr, size) \
-		SCB_CleanDCache_by_Addr((u32_t *)addr, size)
+/** RX descriptors count for main queue */
+#define MAIN_QUEUE_RX_DESC_COUNT        CONFIG_ETH_SAM_GMAC_BUF_RX_COUNT
+/** TX descriptors count for main queue */
+#define MAIN_QUEUE_TX_DESC_COUNT        (CONFIG_NET_BUF_TX_COUNT + 1)
+
+/** RX/TX descriptors count for priority queues */
+#if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 1
+#define PRIORITY_QUEUE1_RX_DESC_COUNT   MAIN_QUEUE_RX_DESC_COUNT
+#define PRIORITY_QUEUE1_TX_DESC_COUNT   MAIN_QUEUE_TX_DESC_COUNT
 #else
-#define DCACHE_INVALIDATE(addr, size) { ; }
-#define DCACHE_CLEAN(addr, size) { ; }
+#define PRIORITY_QUEUE1_RX_DESC_COUNT   1
+#define PRIORITY_QUEUE1_TX_DESC_COUNT   1
+#endif
+
+#if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 2
+#define PRIORITY_QUEUE2_RX_DESC_COUNT   MAIN_QUEUE_RX_DESC_COUNT
+#define PRIORITY_QUEUE2_TX_DESC_COUNT   MAIN_QUEUE_TX_DESC_COUNT
+#else
+#define PRIORITY_QUEUE2_RX_DESC_COUNT   1
+#define PRIORITY_QUEUE2_TX_DESC_COUNT   1
+#endif
+
+#if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 3
+#define PRIORITY_QUEUE3_RX_DESC_COUNT   MAIN_QUEUE_RX_DESC_COUNT
+#define PRIORITY_QUEUE3_TX_DESC_COUNT   MAIN_QUEUE_TX_DESC_COUNT
+#else
+#define PRIORITY_QUEUE3_RX_DESC_COUNT   1
+#define PRIORITY_QUEUE3_TX_DESC_COUNT   1
+#endif
+
+#if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 4
+#define PRIORITY_QUEUE4_RX_DESC_COUNT   MAIN_QUEUE_RX_DESC_COUNT
+#define PRIORITY_QUEUE4_TX_DESC_COUNT   MAIN_QUEUE_TX_DESC_COUNT
+#else
+#define PRIORITY_QUEUE4_RX_DESC_COUNT   1
+#define PRIORITY_QUEUE4_TX_DESC_COUNT   1
+#endif
+
+#if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 5
+#define PRIORITY_QUEUE5_RX_DESC_COUNT   MAIN_QUEUE_RX_DESC_COUNT
+#define PRIORITY_QUEUE5_TX_DESC_COUNT   MAIN_QUEUE_TX_DESC_COUNT
+#else
+#define PRIORITY_QUEUE5_RX_DESC_COUNT   1
+#define PRIORITY_QUEUE5_TX_DESC_COUNT   1
 #endif
 
 /*
@@ -117,50 +164,96 @@
 		(GMAC_IER_RCOMP | GMAC_INT_RX_ERR_BITS | \
 		 GMAC_IER_TCOMP | GMAC_INT_TX_ERR_BITS | GMAC_IER_HRESP)
 
+#define GMAC_INTPQ_RX_ERR_BITS \
+		(GMAC_IERPQ_RXUBR | GMAC_IERPQ_ROVR)
+#define GMAC_INTPQ_TX_ERR_BITS \
+		(GMAC_IERPQ_RLEX | GMAC_IERPQ_TFC)
+#define GMAC_INTPQ_EN_FLAGS \
+		(GMAC_IERPQ_RCOMP | GMAC_INTPQ_RX_ERR_BITS | \
+		 GMAC_IERPQ_TCOMP | GMAC_INTPQ_TX_ERR_BITS | GMAC_IERPQ_HRESP)
+
+/** GMAC Priority Queues DMA flags */
+#if GMAC_PRIORITY_QUEUE_NUM >= 1
+	/* 4 kB Receiver Packet Buffer Memory Size */
+	/* 4 kB Transmitter Packet Buffer Memory Size */
+	/* Transmitter Checksum Generation Offload Enable */
+#define GMAC_DMA_QUEUE_FLAGS \
+		(GMAC_DCFGR_RXBMS_FULL | GMAC_DCFGR_TXPBMS | \
+		 GMAC_DCFGR_TXCOEN)
+#else
+#define GMAC_DMA_QUEUE_FLAGS (0)
+#endif
+
 /** List of GMAC queues */
 enum queue_idx {
 	GMAC_QUE_0,  /** Main queue */
 	GMAC_QUE_1,  /** Priority queue 1 */
 	GMAC_QUE_2,  /** Priority queue 2 */
+	GMAC_QUE_3,  /** Priority queue 3 */
+	GMAC_QUE_4,  /** Priority queue 4 */
+	GMAC_QUE_5,  /** Priority queue 5 */
 };
+
+#if (DT_INST_PROP(0, max_frame_size) == 1518)
+	/* Maximum frame length is 1518 bytes */
+#define GMAC_MAX_FRAME_SIZE 0
+#elif (DT_INST_PROP(0, max_frame_size) == 1536)
+	/* Enable Max Frame Size of 1536 */
+#define GMAC_MAX_FRAME_SIZE GMAC_NCFGR_MAXFS
+#elif (DT_INST_PROP(0, max_frame_size) == 10240)
+	/* Jumbo Frame Enable */
+#define GMAC_MAX_FRAME_SIZE GMAC_NCFGR_JFRAME
+#else
+#error "GMAC_MAX_FRAME_SIZE is invalid, fix it at device tree."
+#endif
 
 /** Minimal ring buffer implementation */
 struct ring_buf {
-	u32_t *buf;
-	u16_t len;
-	u16_t head;
-	u16_t tail;
+	uint32_t *buf;
+	uint16_t len;
+	uint16_t head;
+	uint16_t tail;
 };
 
 /** Receive/transmit buffer descriptor */
 struct gmac_desc {
-	u32_t w0;
-	u32_t w1;
+	uint32_t w0;
+	uint32_t w1;
 };
 
 /** Ring list of receive/transmit buffer descriptors */
 struct gmac_desc_list {
 	struct gmac_desc *buf;
-	u16_t len;
-	u16_t head;
-	u16_t tail;
+	uint16_t len;
+	uint16_t head;
+	uint16_t tail;
 };
 
 /** GMAC Queue data */
 struct gmac_queue {
 	struct gmac_desc_list rx_desc_list;
 	struct gmac_desc_list tx_desc_list;
+#if GMAC_MULTIPLE_TX_PACKETS == 1
 	struct k_sem tx_desc_sem;
+#else
+	struct k_sem tx_sem;
+#endif
 
-	struct ring_buf rx_frag_list;
+	struct net_buf **rx_frag_list;
+
+#if GMAC_MULTIPLE_TX_PACKETS == 1
+	struct ring_buf tx_frag_list;
+#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
 	struct ring_buf tx_frames;
+#endif
+#endif
 
 	/** Number of RX frames dropped by the driver */
-	volatile u32_t err_rx_frames_dropped;
+	volatile uint32_t err_rx_frames_dropped;
 	/** Number of times receive queue was flushed */
-	volatile u32_t err_rx_flushed_count;
+	volatile uint32_t err_rx_flushed_count;
 	/** Number of times transmit queue was flushed */
-	volatile u32_t err_tx_flushed_count;
+	volatile uint32_t err_tx_flushed_count;
 
 	enum queue_idx que_idx;
 };
@@ -168,9 +261,9 @@ struct gmac_queue {
 /* Device constant configuration parameters */
 struct eth_sam_dev_cfg {
 	Gmac *regs;
-	u32_t periph_id;
+	uint32_t periph_id;
 	const struct soc_gpio_pin *pin_list;
-	u32_t pin_list_size;
+	uint32_t pin_list_size;
 	void (*config_func)(void);
 	struct phy_sam_gmac_dev phy;
 };
@@ -178,13 +271,18 @@ struct eth_sam_dev_cfg {
 /* Device run time data */
 struct eth_sam_dev_data {
 	struct net_if *iface;
-	u8_t mac_addr[6];
-	struct gmac_queue queue_list[GMAC_QUEUE_NO];
+#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
+	const struct device *ptp_clock;
+#endif
+	uint8_t mac_addr[6];
+	struct k_delayed_work monitor_work;
+	bool link_up;
+	struct gmac_queue queue_list[GMAC_QUEUE_NUM];
 };
 
 #define DEV_CFG(dev) \
-	((const struct eth_sam_dev_cfg *const)(dev)->config->config_info)
+	((const struct eth_sam_dev_cfg *const)(dev)->config)
 #define DEV_DATA(dev) \
-	((struct eth_sam_dev_data *const)(dev)->driver_data)
+	((struct eth_sam_dev_data *const)(dev)->data)
 
-#endif /* _ETH_SAM_GMAC_PRIV_H_ */
+#endif /* ZEPHYR_DRIVERS_ETHERNET_ETH_SAM_GMAC_PRIV_H_ */

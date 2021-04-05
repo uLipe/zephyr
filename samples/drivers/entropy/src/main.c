@@ -5,27 +5,27 @@
  */
 
 #include <zephyr.h>
-#include <entropy.h>
+#include <drivers/entropy.h>
 #include <stdio.h>
 
 void main(void)
 {
-	struct device *dev;
+	const struct device *dev;
 
 	printf("Entropy Example! %s\n", CONFIG_ARCH);
 
-	dev = device_get_binding(CONFIG_ENTROPY_NAME);
+	dev = device_get_binding(DT_CHOSEN_ZEPHYR_ENTROPY_LABEL);
 	if (!dev) {
 		printf("error: no entropy device\n");
 		return;
 	}
 
 	printf("entropy device is %p, name is %s\n",
-	       dev, dev->config->name);
+	       dev, dev->name);
 
 	while (1) {
 #define BUFFER_LENGTH 10
-		u8_t buffer[BUFFER_LENGTH] = {0};
+		uint8_t buffer[BUFFER_LENGTH] = {0};
 		int r;
 
 		/* The BUFFER_LENGTH-1 is used so the driver will not
@@ -40,7 +40,7 @@ void main(void)
 			break;
 		}
 
-		if (buffer[BUFFER_LENGTH-1] != 0) {
+		if (buffer[BUFFER_LENGTH-1] != 0U) {
 			printf("entropy_get_entropy buffer overflow\n");
 		}
 
@@ -50,6 +50,6 @@ void main(void)
 
 		printf("\n");
 
-		k_sleep(1000);
+		k_sleep(K_MSEC(1000));
 	}
 }

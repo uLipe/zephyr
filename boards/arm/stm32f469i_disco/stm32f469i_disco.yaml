@@ -1,7 +1,17 @@
 identifier: stm32f469i_disco
-name: STM32F469I-DISCO
+name: ST STM32F469I Discovery
 type: mcu
 arch: arm
 toolchain:
   - zephyr
-  - gccarmemb
+  - gnuarmemb
+  - xtools
+ram: 320
+flash: 2048
+supported:
+  - arduino_i2c
+  - counter
+  - i2c
+  - spi
+  - gpio
+  - usb_device

@@ -1,7 +1,10 @@
 identifier: stm32f411e_disco
-name: 32F411EDISCOVERY
+name: ST STM32F411E Discovery
 type: mcu
 arch: arm
 toolchain:
   - zephyr
-  - gccarmemb
+  - gnuarmemb
+  - xtools
+supported:
+  - counter

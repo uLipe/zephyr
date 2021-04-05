@@ -1,4 +1,4 @@
 tests:
-  - test:
-        depends_on: i2s
-        tags: drivers
+  drivers.i2s:
+    depends_on: i2s
+    tags: drivers userspace

@@ -12,9 +12,15 @@
 #include <net/mii.h>
 #include "phy_sam_gmac.h"
 
-#define SYS_LOG_DOMAIN "soc/soc_phy"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_ETHERNET_LEVEL
-#include <logging/sys_log.h>
+#ifdef CONFIG_SOC_FAMILY_SAM0
+#include "eth_sam0_gmac.h"
+#endif
+
+#define LOG_MODULE_NAME eth_sam_phy
+#define LOG_LEVEL CONFIG_ETHERNET_LOG_LEVEL
+
+#include <logging/log.h>
+LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 /* Maximum time to establish a link through auto-negotiation for
  * 10BASE-T, 100BASE-TX is 3.7s, to add an extra margin the timeout
@@ -37,23 +43,23 @@ static void mdio_bus_disable(Gmac *gmac)
 /* Wait PHY operation complete. */
 static int mdio_bus_wait(Gmac *gmac)
 {
-	u32_t retries = 100;  /* will wait up to 1 s */
+	uint32_t retries = 100U;  /* will wait up to 1 s */
 
 	while (!(gmac->GMAC_NSR & GMAC_NSR_IDLE))   {
-		if (retries-- == 0) {
-			SYS_LOG_ERR("timeout");
+		if (retries-- == 0U) {
+			LOG_ERR("timeout");
 			return -ETIMEDOUT;
 		}
 
-		k_sleep(10);
+		k_sleep(K_MSEC(10));
 	}
 
 	return 0;
 }
 
 /* Send command to PHY over MDIO serial bus */
-static int mdio_bus_send(Gmac *gmac, u8_t phy_addr, u8_t reg_addr,
-			 u8_t rw, u16_t data)
+static int mdio_bus_send(Gmac *gmac, uint8_t phy_addr, uint8_t reg_addr,
+			 uint8_t rw, uint16_t data)
 {
 	int retval;
 
@@ -75,11 +81,11 @@ static int mdio_bus_send(Gmac *gmac, u8_t phy_addr, u8_t reg_addr,
 }
 
 /* Read PHY register. */
-static int phy_read(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
-		    u32_t *value)
+static int phy_read(const struct phy_sam_gmac_dev *phy, uint8_t reg_addr,
+		    uint32_t *value)
 {
 	Gmac *const gmac = phy->regs;
-	u8_t phy_addr = phy->address;
+	uint8_t phy_addr = phy->address;
 	int retval;
 
 	retval = mdio_bus_send(gmac, phy_addr, reg_addr, 1, 0);
@@ -94,11 +100,11 @@ static int phy_read(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
 }
 
 /* Write PHY register. */
-static int phy_write(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
-		     u32_t value)
+static int phy_write(const struct phy_sam_gmac_dev *phy, uint8_t reg_addr,
+		     uint32_t value)
 {
 	Gmac *const gmac = phy->regs;
-	u8_t phy_addr = phy->address;
+	uint8_t phy_addr = phy->address;
 
 	return mdio_bus_send(gmac, phy_addr, reg_addr, 0, value);
 }
@@ -106,8 +112,8 @@ static int phy_write(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
 /* Issue a PHY soft reset. */
 static int phy_soft_reset(const struct phy_sam_gmac_dev *phy)
 {
-	u32_t phy_reg;
-	u32_t retries = 12;
+	uint32_t phy_reg;
+	uint32_t retries = 12U;
 	int retval;
 
 	/* Issue a soft reset */
@@ -121,11 +127,11 @@ static int phy_soft_reset(const struct phy_sam_gmac_dev *phy)
 	 * up to 0.5 s.
 	 */
 	do {
-		if (retries-- == 0) {
+		if (retries-- == 0U) {
 			return -ETIMEDOUT;
 		}
 
-		k_sleep(50);
+		k_sleep(K_MSEC(50));
 
 		retval = phy_read(phy, MII_BMCR, &phy_reg);
 		if (retval < 0) {
@@ -143,28 +149,28 @@ int phy_sam_gmac_init(const struct phy_sam_gmac_dev *phy)
 
 	mdio_bus_enable(gmac);
 
-	SYS_LOG_INF("Soft Reset of ETH PHY");
+	LOG_INF("Soft Reset of ETH PHY");
 	phy_soft_reset(phy);
 
 	/* Verify that the PHY device is responding */
 	phy_id = phy_sam_gmac_id_get(phy);
 	if (phy_id == 0xFFFFFFFF) {
-		SYS_LOG_ERR("Unable to detect a valid PHY");
+		LOG_ERR("Unable to detect a valid PHY");
 		return -1;
 	}
 
-	SYS_LOG_INF("PHYID: 0x%X at addr: %d", phy_id, phy->address);
+	LOG_INF("PHYID: 0x%X at addr: %d", phy_id, phy->address);
 
 	mdio_bus_disable(gmac);
 
 	return 0;
 }
 
-u32_t phy_sam_gmac_id_get(const struct phy_sam_gmac_dev *phy)
+uint32_t phy_sam_gmac_id_get(const struct phy_sam_gmac_dev *phy)
 {
 	Gmac *const gmac = phy->regs;
-	u32_t phy_reg;
-	u32_t phy_id;
+	uint32_t phy_reg;
+	uint32_t phy_id;
 
 	mdio_bus_enable(gmac);
 
@@ -185,19 +191,35 @@ u32_t phy_sam_gmac_id_get(const struct phy_sam_gmac_dev *phy)
 	return phy_id;
 }
 
+bool phy_sam_gmac_link_status_get(const struct phy_sam_gmac_dev *phy)
+{
+	Gmac * const gmac = phy->regs;
+	uint32_t bmsr;
+
+	mdio_bus_enable(gmac);
+
+	if (phy_read(phy, MII_BMSR, &bmsr) < 0) {
+		return false;
+	}
+
+	mdio_bus_disable(gmac);
+
+	return (bmsr & MII_BMSR_LINK_STATUS) != 0;
+}
+
 int phy_sam_gmac_auto_negotiate(const struct phy_sam_gmac_dev *phy,
-				u32_t *status)
+				uint32_t *status)
 {
 	Gmac *const gmac = phy->regs;
-	u32_t val;
-	u32_t ability_adv;
-	u32_t ability_rcvd;
-	u32_t retries = PHY_AUTONEG_TIMEOUT_MS / 100;
+	uint32_t val;
+	uint32_t ability_adv;
+	uint32_t ability_rcvd;
+	uint32_t retries = PHY_AUTONEG_TIMEOUT_MS / 100;
 	int retval;
 
 	mdio_bus_enable(gmac);
 
-	SYS_LOG_DBG("Starting ETH PHY auto-negotiate sequence");
+	LOG_DBG("Starting ETH PHY auto-negotiate sequence");
 
 	/* Read PHY default advertising parameters */
 	retval = phy_read(phy, MII_ANAR, &ability_adv);
@@ -221,12 +243,12 @@ int phy_sam_gmac_auto_negotiate(const struct phy_sam_gmac_dev *phy,
 
 	/* Wait for the auto-negotiation process to complete */
 	do {
-		if (retries-- == 0) {
+		if (retries-- == 0U) {
 			retval = -ETIMEDOUT;
 			goto auto_negotiate_exit;
 		}
 
-		k_sleep(100);
+		k_sleep(K_MSEC(100));
 
 		retval = phy_read(phy, MII_BMSR, &val);
 		if (retval < 0) {
@@ -234,7 +256,7 @@ int phy_sam_gmac_auto_negotiate(const struct phy_sam_gmac_dev *phy,
 		}
 	} while (!(val & MII_BMSR_AUTONEG_COMPLETE));
 
-	SYS_LOG_DBG("PHY auto-negotiate sequence completed");
+	LOG_DBG("PHY auto-negotiate sequence completed");
 
 	/* Read abilities of the remote device */
 	retval = phy_read(phy, MII_ANLPAR, &ability_rcvd);
@@ -253,9 +275,9 @@ int phy_sam_gmac_auto_negotiate(const struct phy_sam_gmac_dev *phy,
 		*status = PHY_DUPLEX_HALF | PHY_SPEED_10M;
 	}
 
-	SYS_LOG_INF("common abilities: speed %s Mb, %s duplex",
-		    *status & PHY_SPEED_100M ? "100" : "10",
-		    *status & PHY_DUPLEX_FULL ? "full" : "half");
+	LOG_INF("common abilities: speed %s Mb, %s duplex",
+		*status & PHY_SPEED_100M ? "100" : "10",
+		*status & PHY_DUPLEX_FULL ? "full" : "half");
 
 auto_negotiate_exit:
 	mdio_bus_disable(gmac);

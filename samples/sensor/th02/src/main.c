@@ -6,9 +6,9 @@
 
 #include <zephyr.h>
 #include <device.h>
-#include <sensor.h>
-#include <misc/printk.h>
-#include <misc/util.h>
+#include <drivers/sensor.h>
+#include <sys/printk.h>
+#include <sys/util.h>
 
 #ifdef CONFIG_GROVE_LCD_RGB
 #include <display/grove_lcd.h>
@@ -23,18 +23,18 @@ struct channel_info {
 
 /* change device names if you want to use different sensors */
 static struct channel_info info[] = {
-	{ SENSOR_CHAN_TEMP, "TH02" },
+	{ SENSOR_CHAN_AMBIENT_TEMP, "TH02" },
 	{ SENSOR_CHAN_HUMIDITY, "TH02" },
 };
 
 void main(void)
 {
-	struct device *dev[ARRAY_SIZE(info)];
+	const struct device *dev[ARRAY_SIZE(info)];
 	struct sensor_value val[ARRAY_SIZE(info)];
 	unsigned int i;
 	int rc;
 
-	for (i = 0; i < ARRAY_SIZE(info); i++) {
+	for (i = 0U; i < ARRAY_SIZE(info); i++) {
 		dev[i] = device_get_binding(info[i].dev_name);
 		if (dev[i] == NULL) {
 			printk("Failed to get \"%s\" device\n",
@@ -44,7 +44,7 @@ void main(void)
 	}
 
 #ifdef CONFIG_GROVE_LCD_RGB
-	struct device *glcd;
+	const struct device *glcd;
 
 	glcd = device_get_binding(GROVE_LCD_NAME);
 	if (glcd == NULL) {
@@ -60,7 +60,7 @@ void main(void)
 
 	while (1) {
 		/* fetch sensor samples */
-		for (i = 0; i < ARRAY_SIZE(info); i++) {
+		for (i = 0U; i < ARRAY_SIZE(info); i++) {
 			rc = sensor_sample_fetch(dev[i]);
 			if (rc) {
 				printk("Failed to fetch sample for device %s (%d)\n",
@@ -68,7 +68,7 @@ void main(void)
 			}
 		}
 
-		for (i = 0; i < ARRAY_SIZE(info); i++) {
+		for (i = 0U; i < ARRAY_SIZE(info); i++) {
 			rc = sensor_channel_get(dev[i], info[i].chan, &val[i]);
 			if (rc) {
 				printk("Failed to get data for device %s (%d)\n",
@@ -81,7 +81,7 @@ void main(void)
 		char row[16];
 
 		/* clear LCD */
-		memset(row, ' ', sizeof(row));
+		(void)memset(row, ' ', sizeof(row));
 		glcd_cursor_pos_set(glcd, 0, 0);
 		glcd_print(glcd, row, sizeof(row));
 		glcd_cursor_pos_set(glcd, 0, 1);
@@ -101,6 +101,6 @@ void main(void)
 
 #endif
 
-		k_sleep(2000);
+		k_sleep(K_MSEC(2000));
 	}
 }

@@ -5,12 +5,12 @@
  */
 
 #include <zephyr.h>
-#include <sensor.h>
+#include <drivers/sensor.h>
 #include <stdio.h>
 
 void main(void)
 {
-	struct device *temp_dev;
+	const struct device *temp_dev;
 
 	printf("Thermometer Example! %s\n", CONFIG_ARCH);
 
@@ -21,7 +21,7 @@ void main(void)
 	}
 
 	printf("temp device is %p, name is %s\n",
-	       temp_dev, temp_dev->config->name);
+	       temp_dev, temp_dev->name);
 
 	while (1) {
 		int r;
@@ -33,7 +33,7 @@ void main(void)
 			break;
 		}
 
-		r = sensor_channel_get(temp_dev, SENSOR_CHAN_TEMP,
+		r = sensor_channel_get(temp_dev, SENSOR_CHAN_AMBIENT_TEMP,
 				       &temp_value);
 		if (r) {
 			printf("sensor_channel_get failed return: %d\n", r);
@@ -43,6 +43,6 @@ void main(void)
 		printf("Temperature is %gC\n",
 		       sensor_value_to_double(&temp_value));
 
-		k_sleep(1000);
+		k_sleep(K_MSEC(1000));
 	}
 }

@@ -8,8 +8,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __NET_HOSTNAME_H
-#define __NET_HOSTNAME_H
+#ifndef ZEPHYR_INCLUDE_NET_HOSTNAME_H_
+#define ZEPHYR_INCLUDE_NET_HOSTNAME_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,7 +22,11 @@ extern "C" {
  * @{
  */
 
-#if defined(CONFIG_NET_HOSTNAME_ENABLE)
+#define NET_HOSTNAME_MAX_LEN				\
+	(sizeof(CONFIG_NET_HOSTNAME) - 1 +		\
+	 (IS_ENABLED(CONFIG_NET_HOSTNAME_UNIQUE) ?	\
+	  sizeof("0011223344556677") - 1 : 0))
+
 /**
  * @brief Get the device hostname
  *
@@ -30,26 +34,27 @@ extern "C" {
  *
  * @return Pointer to hostname or NULL if not set.
  */
+#if defined(CONFIG_NET_HOSTNAME_ENABLE)
 const char *net_hostname_get(void);
+#else
+static inline const char *net_hostname_get(void)
+{
+	return "zephyr";
+}
+#endif /* CONFIG_NET_HOSTNAME_ENABLE */
 
 /**
  * @brief Initialize and set the device hostname.
  *
  */
+#if defined(CONFIG_NET_HOSTNAME_ENABLE)
 void net_hostname_init(void);
-
 #else
-static inline const char *net_hostname_get(void)
-{
-	return NULL;
-}
-
 static inline void net_hostname_init(void)
 {
 }
 #endif /* CONFIG_NET_HOSTNAME_ENABLE */
 
-#if defined(CONFIG_NET_HOSTNAME_UNIQUE)
 /**
  * @brief Set the device hostname postfix
  *
@@ -62,10 +67,11 @@ static inline void net_hostname_init(void)
  *
  * @return 0 if ok, <0 if error
  */
-int net_hostname_set_postfix(const u8_t *hostname_postfix,
+#if defined(CONFIG_NET_HOSTNAME_UNIQUE)
+int net_hostname_set_postfix(const uint8_t *hostname_postfix,
 			      int postfix_len);
 #else
-static inline int net_hostname_set_postfix(const u8_t *hostname_postfix,
+static inline int net_hostname_set_postfix(const uint8_t *hostname_postfix,
 					   int postfix_len)
 {
 	return -EMSGSIZE;
@@ -80,4 +86,4 @@ static inline int net_hostname_set_postfix(const u8_t *hostname_postfix,
 }
 #endif
 
-#endif /* __NET_HOSTNAME_H */
+#endif /* ZEPHYR_INCLUDE_NET_HOSTNAME_H_ */

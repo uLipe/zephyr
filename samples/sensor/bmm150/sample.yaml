@@ -1,8 +1,8 @@
 sample:
-  description: TBD
-  name: TBD
+  name: BMM150 Sensor Sample
 tests:
-  - test:
-      build_only: true
-      platform_whitelist: arduino_101
-      tags: samples sensor
+  sample.sensor.bmm150:
+    harness: sensor
+    tags: sensors
+    depends_on: gpio i2c
+    filter: dt_compat_enabled("bosch,bmm150")

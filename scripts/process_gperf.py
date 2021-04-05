@@ -4,19 +4,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
-import argparse
-import os
-import re
-from distutils.version import LooseVersion
-
-# --- debug stuff ---
-
 """
 gperf C file post-processor
 
 We use gperf to build up a perfect hashtable of pointer values. The way gperf
-does this is to create a table 'wordlist' indexed by a string repreesentation
+does this is to create a table 'wordlist' indexed by a string representation
 of a pointer address, and then doing memcmp() on a string passed in for
 comparison
 
@@ -25,6 +17,14 @@ the generated code so that we work with pointers directly and not strings.
 This saves a considerable amount of space.
 """
 
+import sys
+import argparse
+import os
+import re
+from distutils.version import LooseVersion
+
+# --- debug stuff ---
+
 def debug(text):
     if not args.verbose:
         return
@@ -32,12 +32,16 @@ def debug(text):
 
 
 def error(text):
-    sys.stderr.write(os.path.basename(sys.argv[0]) + " ERROR: " + text + "\n")
-    sys.exit(1)
+    sys.exit(os.path.basename(sys.argv[0]) + " ERROR: " + text)
 
 
 def warn(text):
-    sys.stdout.write(os.path.basename(sys.argv[0]) + " WARNING: " + text + "\n")
+    sys.stdout.write(
+        os.path.basename(
+            sys.argv[0]) +
+        " WARNING: " +
+        text +
+        "\n")
 
 
 def reformat_str(match_obj):
@@ -45,23 +49,23 @@ def reformat_str(match_obj):
 
     # Nip quotes
     addr_str = addr_str[1:-1]
-    addr_vals = [0, 0, 0, 0]
-    ctr = 3
+    addr_vals = [0, 0, 0, 0, 0, 0, 0 , 0]
+    ctr = 7
     i = 0
 
-    while (True):
+    while True:
         if i >= len(addr_str):
             break
 
         if addr_str[i] == "\\":
-            if addr_str[i+1].isdigit():
+            if addr_str[i + 1].isdigit():
                 # Octal escape sequence
-                val_str = addr_str[i+1:i+4]
+                val_str = addr_str[i + 1:i + 4]
                 addr_vals[ctr] = int(val_str, 8)
                 i += 4
             else:
                 # Char value that had to be escaped by C string rules
-                addr_vals[ctr] = ord(addr_str[i+1])
+                addr_vals[ctr] = ord(addr_str[i + 1])
                 i += 2
 
         else:
@@ -70,7 +74,8 @@ def reformat_str(match_obj):
 
         ctr -= 1
 
-    return "(char *)0x%02x%02x%02x%02x" % tuple(addr_vals)
+    return "(char *)0x%02x%02x%02x%02x%02x%02x%02x%02x" % tuple(addr_vals)
+
 
 def process_line(line, fp):
     if line.startswith("#"):
@@ -78,8 +83,8 @@ def process_line(line, fp):
         return
 
     # Set the lookup function to static inline so it gets rolled into
-    # _k_object_find(), nothing else will use it
-    if re.search("struct _k_object [*]$", line):
+    # z_object_find(), nothing else will use it
+    if re.search(args.pattern + " [*]$", line):
         fp.write("static inline " + line)
         return
 
@@ -90,11 +95,11 @@ def process_line(line, fp):
         v_hi = LooseVersion("3.1")
         if (v < v_lo or v > v_hi):
             warn("gperf %s is not tested, versions %s through %s supported" %
-                    (v, v_lo, v_hi))
+                 (v, v_lo, v_hi))
 
-    # Replace length lookups with constant len of 4 since we're always
+    # Replace length lookups with constant len since we're always
     # looking at pointers
-    line = re.sub(r'lengthtable[[]key[]]', r'4', line)
+    line = re.sub(r'lengthtable\[key\]', r'sizeof(void *)', line)
 
     # Empty wordlist entries to have NULLs instead of ""
     line = re.sub(r'[{]["]["][}]', r'{}', line)
@@ -110,7 +115,7 @@ def process_line(line, fp):
 
     # Hashing the address of the string
     line = re.sub(r"hash [(]str, len[)]",
-            r"hash((const char *)&str, len)", line)
+                  r"hash((const char *)&str, len)", line)
 
     # Just compare pointers directly instead of using memcmp
     if re.search("if [(][*]str", line):
@@ -123,20 +128,25 @@ def process_line(line, fp):
 
     fp.write(line)
 
+
 def parse_args():
     global args
 
-    parser = argparse.ArgumentParser(description = __doc__,
-            formatter_class = argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument("-i", "--input", required=True,
-            help="Input C file from gperf")
+                        help="Input C file from gperf")
     parser.add_argument("-o", "--output", required=True,
-            help="Output C file with processing done")
+                        help="Output C file with processing done")
+    parser.add_argument("-p", "--pattern", required=True,
+            help="Search pattern for objects")
     parser.add_argument("-v", "--verbose", action="store_true",
-            help="Print extra debugging information")
+                        help="Print extra debugging information")
     args = parser.parse_args()
-
+    if "VERBOSE" in os.environ:
+        args.verbose = 1
 
 def main():
     parse_args()

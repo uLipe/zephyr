@@ -1,4 +1,5 @@
+common:
+  depends_on: netif
 tests:
-  - test:
-      arch_whitelist: x86
-      tags: net ipv6
+  net.ipv6.fragment:
+    tags: net ipv6 fragment

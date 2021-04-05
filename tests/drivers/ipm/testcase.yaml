@@ -1,4 +1,4 @@
 tests:
-  - test:
-      filter: not CONFIG_SOC_QUARK_SE_C1000_SS
-      tags: core
+  drivers.ipc.mailbox:
+    arch_exclude: posix xtensa
+    tags: drivers ipc

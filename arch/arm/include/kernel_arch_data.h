@@ -9,7 +9,7 @@
  * @brief Private kernel definitions (ARM)
  *
  * This file contains private kernel structures definitions and various
- * other definitions for the ARM Cortex-M3 processor architecture.
+ * other definitions for the ARM Cortex-A/R/M processor architecture family.
  *
  * This file is also included by assembly language files which must #define
  * _ASMLANGUAGE before including this header file.  Note that kernel
@@ -17,54 +17,46 @@
  * in the offsets.o module.
  */
 
-#ifndef _kernel_arch_data__h_
-#define _kernel_arch_data__h_
+#ifndef ZEPHYR_ARCH_ARM_INCLUDE_KERNEL_ARCH_DATA_H_
+#define ZEPHYR_ARCH_ARM_INCLUDE_KERNEL_ARCH_DATA_H_
+
+#include <toolchain.h>
+#include <linker/sections.h>
+#include <arch/cpu.h>
+
+#if defined(CONFIG_CPU_CORTEX_M)
+#include <aarch32/cortex_m/stack.h>
+#include <aarch32/cortex_m/exc.h>
+#elif defined(CONFIG_CPU_CORTEX_R)
+#include <aarch32/cortex_a_r/stack.h>
+#include <aarch32/cortex_a_r/exc.h>
+#endif
+
+#ifndef _ASMLANGUAGE
+#include <kernel.h>
+#include <zephyr/types.h>
+#include <sys/dlist.h>
+#include <sys/atomic.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <toolchain.h>
-#include <linker/sections.h>
-#include <arch/cpu.h>
-#include <kernel_arch_thread.h>
-
-#ifndef _ASMLANGUAGE
-#include <kernel.h>
-#include <nano_internal.h>
-#include <zephyr/types.h>
-#include <misc/dlist.h>
-#include <atomic.h>
-#endif
-
-#ifndef _ASMLANGUAGE
-
 typedef struct __esf _esf_t;
+typedef struct __basic_sf _basic_sf_t;
 
-#endif /* _ASMLANGUAGE */
-
-/* stacks */
-
-#define STACK_ROUND_UP(x) ROUND_UP(x, STACK_ALIGN_SIZE)
-#define STACK_ROUND_DOWN(x) ROUND_DOWN(x, STACK_ALIGN_SIZE)
-
-#ifdef CONFIG_CPU_CORTEX_M
-#include <cortex_m/stack.h>
-#include <cortex_m/exc.h>
-#endif
-
-#ifndef _ASMLANGUAGE
-
-struct _kernel_arch {
-	/* empty */
+#ifdef CONFIG_ARM_MPU
+struct z_arm_mpu_partition {
+	uintptr_t start;
+	size_t size;
+	k_mem_partition_attr_t attr;
 };
-
-typedef struct _kernel_arch _kernel_arch_t;
-
-#endif /* _ASMLANGUAGE */
+#endif
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _kernel_arch_data__h_ */
+#endif /* _ASMLANGUAGE */
+
+#endif /* ZEPHYR_ARCH_ARM_INCLUDE_KERNEL_ARCH_DATA_H_ */

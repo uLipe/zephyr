@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <arch/nios2/asm.h>
-#include <kernel_structs.h>
+#include <toolchain.h>
+#include <linker/sections.h>
 #include <offsets_short.h>
 
 /* exports */
@@ -13,13 +13,10 @@ GTEXT(_exception)
 
 /* import */
 GTEXT(_Fault)
-GTEXT(__swap)
+GTEXT(arch_swap)
 #ifdef CONFIG_IRQ_OFFLOAD
-GTEXT(_irq_do_offload)
+GTEXT(z_irq_do_offload)
 GTEXT(_offload_routine)
-#endif
-#ifdef CONFIG_TIMESLICING
-GTEXT(_update_time_slice_before_swap)
 #endif
 
 /* Allows use of r1/at register, otherwise reserved for assembler use */
@@ -38,35 +35,35 @@ GTEXT(_update_time_slice_before_swap)
  */
 SECTION_FUNC(exception.entry, _exception)
 	/* Reserve thread stack space for saving context */
-	subi sp, sp, __NANO_ESF_SIZEOF
+	subi sp, sp, __z_arch_esf_t_SIZEOF
 
 	/* Preserve all caller-saved registers onto the thread's stack */
-	stw ra,  __NANO_ESF_ra_OFFSET(sp)
-	stw r1,  __NANO_ESF_r1_OFFSET(sp)
-	stw r2,  __NANO_ESF_r2_OFFSET(sp)
-	stw r3,  __NANO_ESF_r3_OFFSET(sp)
-	stw r4,  __NANO_ESF_r4_OFFSET(sp)
-	stw r5,  __NANO_ESF_r5_OFFSET(sp)
-	stw r6,  __NANO_ESF_r6_OFFSET(sp)
-	stw r7,  __NANO_ESF_r7_OFFSET(sp)
-	stw r8,  __NANO_ESF_r8_OFFSET(sp)
-	stw r9,  __NANO_ESF_r9_OFFSET(sp)
-	stw r10, __NANO_ESF_r10_OFFSET(sp)
-	stw r11, __NANO_ESF_r11_OFFSET(sp)
-	stw r12, __NANO_ESF_r12_OFFSET(sp)
-	stw r13, __NANO_ESF_r13_OFFSET(sp)
-	stw r14, __NANO_ESF_r14_OFFSET(sp)
-	stw r15, __NANO_ESF_r15_OFFSET(sp)
+	stw ra,  __z_arch_esf_t_ra_OFFSET(sp)
+	stw r1,  __z_arch_esf_t_r1_OFFSET(sp)
+	stw r2,  __z_arch_esf_t_r2_OFFSET(sp)
+	stw r3,  __z_arch_esf_t_r3_OFFSET(sp)
+	stw r4,  __z_arch_esf_t_r4_OFFSET(sp)
+	stw r5,  __z_arch_esf_t_r5_OFFSET(sp)
+	stw r6,  __z_arch_esf_t_r6_OFFSET(sp)
+	stw r7,  __z_arch_esf_t_r7_OFFSET(sp)
+	stw r8,  __z_arch_esf_t_r8_OFFSET(sp)
+	stw r9,  __z_arch_esf_t_r9_OFFSET(sp)
+	stw r10, __z_arch_esf_t_r10_OFFSET(sp)
+	stw r11, __z_arch_esf_t_r11_OFFSET(sp)
+	stw r12, __z_arch_esf_t_r12_OFFSET(sp)
+	stw r13, __z_arch_esf_t_r13_OFFSET(sp)
+	stw r14, __z_arch_esf_t_r14_OFFSET(sp)
+	stw r15, __z_arch_esf_t_r15_OFFSET(sp)
 
 	/* Store value of estatus control register */
 	rdctl et, estatus
-	stw   et, __NANO_ESF_estatus_OFFSET(sp)
+	stw   et, __z_arch_esf_t_estatus_OFFSET(sp)
 
 	/* ea-4 is the address of the instruction when the exception happened,
 	 * put this in the stack frame as well
 	 */
 	addi  r15, ea, -4
-	stw   r15, __NANO_ESF_instr_OFFSET(sp)
+	stw   r15, __z_arch_esf_t_instr_OFFSET(sp)
 
 	/* Figure out whether we are here because of an interrupt or an
 	 * exception. If an interrupt, switch stacks and enter IRQ handling
@@ -123,14 +120,6 @@ on_irq_stack:
 	 * switch
 	 */
 
-	/*
-	 * Non-preemptible thread ? Do not schedule (see explanation of
-	 * preempt field in kernel_struct.h).
-	 */
-	ldhu r12, _thread_offset_to_preempt(r11)
-	movui r3, _NON_PREEMPT_THRESHOLD
-	bgeu r12, r3, no_reschedule
-
 	/* Call into the kernel to see if a scheduling decision is necessary */
 	ldw  r2, _kernel_offset_to_ready_q_cache(r10)
 	beq  r2, r11, no_reschedule
@@ -138,7 +127,7 @@ on_irq_stack:
 	/*
 	 * A context reschedule is required: keep the volatile registers of
 	 * the interrupted thread on the context's stack.  Utilize
-	 * the existing __swap() primitive to save the remaining
+	 * the existing arch_swap() primitive to save the remaining
 	 * thread's registers (including floating point) and perform
 	 * a switch to the new thread.
 	 */
@@ -148,10 +137,6 @@ on_irq_stack:
 	 */
 	ldw sp, 0(sp)
 
-#ifdef CONFIG_TIMESLICING
-	call _update_time_slice_before_swap
-#endif
-
 	/* Argument to Swap() is estatus since that's the state of the
 	 * status register before the exception happened. When coming
 	 * out of the context switch we need this info to restore
@@ -159,7 +144,7 @@ on_irq_stack:
 	 */
 	mov r4, et
 
-	call __swap
+	call arch_swap
 	jmpi _exception_exit
 #else
 	jmpi no_reschedule
@@ -172,7 +157,7 @@ not_interrupt:
 	 *
 	 * We earlier put ea - 4 in the stack frame, replace it with just ea
 	 */
-	stw ea, __NANO_ESF_instr_OFFSET(sp)
+	stw ea, __z_arch_esf_t_instr_OFFSET(sp)
 
 #ifdef CONFIG_IRQ_OFFLOAD
 	/* Check the contents of _offload_routine. If non-NULL, jump into
@@ -208,35 +193,35 @@ _exception_exit:
 	 * and return to the interrupted context */
 
 	/* Return address from the exception */
-	ldw ea, __NANO_ESF_instr_OFFSET(sp)
+	ldw ea, __z_arch_esf_t_instr_OFFSET(sp)
 
 	/* Restore estatus
 	 * XXX is this right??? */
-	ldw   r5, __NANO_ESF_estatus_OFFSET(sp)
+	ldw   r5, __z_arch_esf_t_estatus_OFFSET(sp)
 	wrctl estatus, r5
 
 	/* Restore caller-saved registers */
-	ldw ra,  __NANO_ESF_ra_OFFSET(sp)
-	ldw r1,  __NANO_ESF_r1_OFFSET(sp)
-	ldw r2,  __NANO_ESF_r2_OFFSET(sp)
-	ldw r3,  __NANO_ESF_r3_OFFSET(sp)
-	ldw r4,  __NANO_ESF_r4_OFFSET(sp)
-	ldw r5,  __NANO_ESF_r5_OFFSET(sp)
-	ldw r6,  __NANO_ESF_r6_OFFSET(sp)
-	ldw r7,  __NANO_ESF_r7_OFFSET(sp)
-	ldw r8,  __NANO_ESF_r8_OFFSET(sp)
-	ldw r9,  __NANO_ESF_r9_OFFSET(sp)
-	ldw r10, __NANO_ESF_r10_OFFSET(sp)
-	ldw r11, __NANO_ESF_r11_OFFSET(sp)
-	ldw r12, __NANO_ESF_r12_OFFSET(sp)
-	ldw r13, __NANO_ESF_r13_OFFSET(sp)
-	ldw r14, __NANO_ESF_r14_OFFSET(sp)
-	ldw r15, __NANO_ESF_r15_OFFSET(sp)
+	ldw ra,  __z_arch_esf_t_ra_OFFSET(sp)
+	ldw r1,  __z_arch_esf_t_r1_OFFSET(sp)
+	ldw r2,  __z_arch_esf_t_r2_OFFSET(sp)
+	ldw r3,  __z_arch_esf_t_r3_OFFSET(sp)
+	ldw r4,  __z_arch_esf_t_r4_OFFSET(sp)
+	ldw r5,  __z_arch_esf_t_r5_OFFSET(sp)
+	ldw r6,  __z_arch_esf_t_r6_OFFSET(sp)
+	ldw r7,  __z_arch_esf_t_r7_OFFSET(sp)
+	ldw r8,  __z_arch_esf_t_r8_OFFSET(sp)
+	ldw r9,  __z_arch_esf_t_r9_OFFSET(sp)
+	ldw r10, __z_arch_esf_t_r10_OFFSET(sp)
+	ldw r11, __z_arch_esf_t_r11_OFFSET(sp)
+	ldw r12, __z_arch_esf_t_r12_OFFSET(sp)
+	ldw r13, __z_arch_esf_t_r13_OFFSET(sp)
+	ldw r14, __z_arch_esf_t_r14_OFFSET(sp)
+	ldw r15, __z_arch_esf_t_r15_OFFSET(sp)
 
 	/* Put the stack pointer back where it was when we entered
 	 * exception state
 	 */
-	addi sp, sp, __NANO_ESF_SIZEOF
+	addi sp, sp, __z_arch_esf_t_SIZEOF
 
 	/* All done, copy estatus into status and transfer to ea */
 	eret

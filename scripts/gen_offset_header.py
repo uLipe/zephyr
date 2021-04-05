@@ -5,10 +5,18 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+"""
+This script scans a specified object file and generates a header file
+that defined macros for the offsets of various found structure members
+(particularly symbols ending with ``_OFFSET`` or ``_SIZEOF``), primarily
+intended for use in assembly code.
+"""
+
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 import argparse
 import sys
+
 
 def get_symbol_table(obj):
     for section in obj.iter_sections():
@@ -16,6 +24,7 @@ def get_symbol_table(obj):
             return section
 
     raise LookupError("Could not find symbol table")
+
 
 def gen_offset_header(input_name, input_file, output_file):
     include_guard = "__GEN_OFFSETS_H__"
@@ -41,18 +50,30 @@ def gen_offset_header(input_name, input_file, output_file):
         if sym.entry['st_info']['bind'] != 'STB_GLOBAL':
             continue
 
-        output_file.write("#define %s 0x%x\n" % (sym.name, sym.entry['st_value']))
+        output_file.write(
+            "#define %s 0x%x\n" %
+            (sym.name, sym.entry['st_value']))
 
     output_file.write("\n#endif /* %s */\n" % include_guard)
 
     return 0
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        formatter_class = argparse.RawDescriptionHelpFormatter)
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    parser.add_argument("-i", "--input", required=True, help="Input object file")
-    parser.add_argument("-o", "--output", required=True, help="Output header file")
+    parser.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        help="Input object file")
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Output header file")
 
     args = parser.parse_args()
 

@@ -4,10 +4,17 @@ type: mcu
 arch: arm
 toolchain:
   - zephyr
-  - gccarmemb
+  - gnuarmemb
+  - xtools
 supported:
-  - ieee802154
   - adc
-  - i2c
-  - spi
+  - arduino_gpio
+  - counter
   - gpio
+  - i2c
+  - ieee802154
+  - spi
+  - pwm
+testing:
+  ignore_tags:
+    - bluetooth

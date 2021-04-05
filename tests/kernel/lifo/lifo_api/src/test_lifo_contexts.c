@@ -4,19 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @addtogroup t_lifo_api
- * @{
- * @defgroup t_lifo_api_basic test_lifo_api_basic
- * @brief TestPurpose: verify zephyr lifo apis under different context
- * - API coverage
- *   -# k_lifo_init K_LIFO_DEFINE
- *   -# k_lifo_put
- *   -# k_lifo_get
- * @}
- */
-
-
 #include "test_lifo.h"
 
 #define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACKSIZE)
@@ -52,12 +39,12 @@ static void tlifo_get(struct k_lifo *plifo)
 }
 
 /*entry of contexts*/
-static void tIsr_entry_put(void *p)
+static void tIsr_entry_put(const void *p)
 {
 	tlifo_put((struct k_lifo *)p);
 }
 
-static void tIsr_entry_get(void *p)
+static void tIsr_entry_get(const void *p)
 {
 	tlifo_get((struct k_lifo *)p);
 }
@@ -74,7 +61,7 @@ static void tlifo_thread_thread(struct k_lifo *plifo)
 	/**TESTPOINT: thread-thread data passing via lifo*/
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
 		tThread_entry, plifo, NULL, NULL,
-		K_PRIO_PREEMPT(0), 0, 0);
+		K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 	tlifo_put(plifo);
 	k_sem_take(&end_sema, K_FOREVER);
 	k_thread_abort(tid);
@@ -84,7 +71,7 @@ static void tlifo_thread_isr(struct k_lifo *plifo)
 {
 	k_sem_init(&end_sema, 0, 1);
 	/**TESTPOINT: thread-isr data passing via lifo*/
-	irq_offload(tIsr_entry_put, plifo);
+	irq_offload(tIsr_entry_put, (const void *)plifo);
 	tlifo_get(plifo);
 }
 
@@ -93,10 +80,18 @@ static void tlifo_isr_thread(struct k_lifo *plifo)
 	k_sem_init(&end_sema, 0, 1);
 	/**TESTPOINT: isr-thread data passing via lifo*/
 	tlifo_put(plifo);
-	irq_offload(tIsr_entry_get, plifo);
+	irq_offload(tIsr_entry_get, (const void *)plifo);
 }
 
-/*test cases*/
+/**
+ * @addtogroup kernel_lifo_tests
+ * @{
+ */
+
+/**
+ * @brief test thread to thread data passing via lifo
+ * @see k_fifo_init(), k_lifo_put(), k_lifo_get()
+ */
 void test_lifo_thread2thread(void)
 {
 	/**TESTPOINT: init via k_lifo_init*/
@@ -107,6 +102,10 @@ void test_lifo_thread2thread(void)
 	tlifo_thread_thread(&klifo);
 }
 
+/**
+ * @brief test isr to thread data passing via lifo
+ * @see k_fifo_init(), k_lifo_put(), k_lifo_get()
+ */
 void test_lifo_thread2isr(void)
 {
 	/**TESTPOINT: init via k_lifo_init*/
@@ -117,6 +116,10 @@ void test_lifo_thread2isr(void)
 	tlifo_thread_isr(&klifo);
 }
 
+/**
+ * @brief test thread to isr data passing via lifo
+ * @see k_fifo_init(), k_lifo_put(), k_lifo_get()
+ */
 void test_lifo_isr2thread(void)
 {
 	/**TESTPOINT: test k_lifo_init lifo*/
@@ -126,3 +129,7 @@ void test_lifo_isr2thread(void)
 	/**TESTPOINT: test K_LIFO_DEFINE lifo*/
 	tlifo_isr_thread(&klifo);
 }
+
+/**
+ * @}
+ */

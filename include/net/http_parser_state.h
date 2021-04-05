@@ -1,3 +1,6 @@
+
+/* SPDX-License-Identifier: MIT */
+
 /* Copyright Joyent, Inc. and other Node contributors. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,8 +21,8 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
-#ifndef _HTTP_PARSER_STATE_H_
-#define _HTTP_PARSER_STATE_H_
+#ifndef ZEPHYR_INCLUDE_NET_HTTP_PARSER_STATE_H_
+#define ZEPHYR_INCLUDE_NET_HTTP_PARSER_STATE_H_
 #ifdef __cplusplus
 extern "C" {
 #endif

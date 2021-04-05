@@ -1,31 +1,34 @@
-if (COMPILER STREQUAL "clang")
-  # We rely on GAS for assembling, so don't use the integrated assembler
-  zephyr_compile_options_ifndef(CONFIG_X86_IAMCU $<$<COMPILE_LANGUAGE:ASM>:-no-integrated-as>)
+# Copyright (c) 2019 Intel Corp.
+# SPDX-License-Identifier: Apache-2.0
+
+zephyr_library()
+
+if (CONFIG_COVERAGE)
+  zephyr_compile_options($<TARGET_PROPERTY:compiler,coverage>)
+  zephyr_link_libraries($<TARGET_PROPERTY:linker,coverage>)
+endif ()
+
+zephyr_library_sources(cpuhalt.c)
+zephyr_library_sources(prep_c.c)
+zephyr_library_sources(fatal.c)
+zephyr_library_sources(spec_ctrl.c)
+
+zephyr_library_sources_ifdef(CONFIG_X86_MEMMAP memmap.c)
+
+zephyr_library_sources_ifdef(CONFIG_PCIE pcie.c)
+zephyr_library_sources_ifdef(CONFIG_REBOOT_RST_CNT reboot_rst_cnt.c)
+zephyr_library_sources_ifdef(CONFIG_MULTIBOOT multiboot.c)
+zephyr_library_sources_ifdef(CONFIG_ACPI acpi.c)
+zephyr_library_sources_ifdef(CONFIG_X86_MMU x86_mmu.c)
+zephyr_library_sources_ifdef(CONFIG_USERSPACE userspace.c)
+zephyr_library_sources_ifdef(CONFIG_CACHE_MANAGEMENT cache.c)
+
+zephyr_library_sources_ifdef(CONFIG_X86_VERY_EARLY_CONSOLE early_serial.c)
+
+zephyr_library_sources_ifdef(CONFIG_THREAD_LOCAL_STORAGE tls.c)
+
+if(CONFIG_X86_64)
+  include(intel64.cmake)
+else()
+  include(ia32.cmake)
 endif()
-
-zephyr_compile_options($<$<COMPILE_LANGUAGE:ASM>:-Wa,--divide>)
-
-add_subdirectory_ifdef(CONFIG_DEBUG_INFO debug)
-
-zephyr_sources(
-  cache.c
-  cache_s.S
-  cpuhalt.c
-  crt0.S
-  excstub.S
-  intstub.S
-  irq_manage.c
-  msr.c
-  swap.S
-  sys_fatal_error_handler.c
-  thread.c
-  )
-
-zephyr_sources_if_kconfig(                irq_offload.c)
-zephyr_sources_if_kconfig(                x86_mmu.c)
-zephyr_sources_if_kconfig(                reboot_rst_cnt.c)
-zephyr_sources_ifdef(CONFIG_FP_SHARING    float.c)
-zephyr_sources_ifdef(CONFIG_X86_USERSPACE userspace.S)
-
-# Last since we declare default exception handlers here
-zephyr_sources(fatal.c)

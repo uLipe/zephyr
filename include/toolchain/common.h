@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#ifndef ZEPHYR_INCLUDE_TOOLCHAIN_COMMON_H_
+#define ZEPHYR_INCLUDE_TOOLCHAIN_COMMON_H_
 /**
  * @file
  * @brief Common toolchain abstraction
@@ -52,7 +54,7 @@
 
 #ifdef _ASMLANGUAGE
 
-  #ifdef CONFIG_X86
+  #if defined(CONFIG_X86)
 
     #ifdef PERF_OPT
       #define PERFOPT_ALIGN .balign 16
@@ -60,21 +62,26 @@
       #define PERFOPT_ALIGN .balign  1
     #endif
 
-  #elif defined(CONFIG_ARM)
-
-    #ifdef CONFIG_ISA_THUMB
-      #define PERFOPT_ALIGN .balign  2
-    #else
-      #define PERFOPT_ALIGN .balign  4
-    #endif
-
-  #elif defined(CONFIG_ARC)
+  #elif defined(CONFIG_ARM) || defined(CONFIG_ARM64)
 
     #define PERFOPT_ALIGN .balign  4
 
-  #elif defined(CONFIG_NIOS2) || defined(CONFIG_RISCV32) || \
+  #elif defined(CONFIG_ARC)
+
+    /* .align assembler directive is supposed by all ARC toolchains and it is
+     * implemented in a same way across ARC toolchains.
+     */
+    #define PERFOPT_ALIGN .align  4
+
+  #elif defined(CONFIG_NIOS2) || defined(CONFIG_RISCV) || \
 	  defined(CONFIG_XTENSA)
     #define PERFOPT_ALIGN .balign 4
+
+  #elif defined(CONFIG_ARCH_POSIX)
+
+  #elif defined(CONFIG_SPARC)
+
+    #define PERFOPT_ALIGN .align  4
 
   #else
 
@@ -89,18 +96,29 @@
 /* force inlining a function */
 
 #if !defined(_ASMLANGUAGE)
-  #define ALWAYS_INLINE inline __attribute__((always_inline))
+  #ifdef CONFIG_COVERAGE
+    /*
+     * The always_inline attribute forces a function to be inlined,
+     * even ignoring -fno-inline. So for code coverage, do not
+     * force inlining of these functions to keep their bodies around
+     * so their number of executions can be counted.
+     *
+     * Note that "inline" is kept here for kobject_hash.c and
+     * priv_stacks_hash.c. These are built without compiler flags
+     * used for coverage. ALWAYS_INLINE cannot be empty as compiler
+     * would complain about unused functions. Attaching unused
+     * attribute would result in their text sections balloon more than
+     * 10 times in size, as those functions are kept in text section.
+     * So just keep "inline" here.
+     */
+    #define ALWAYS_INLINE inline
+  #else
+    #define ALWAYS_INLINE inline __attribute__((always_inline))
+  #endif
 #endif
 
-#define _STRINGIFY(x) #x
-#define STRINGIFY(s) _STRINGIFY(s)
-
-/* Indicate that an array will be used for stack space. */
-
-#if !defined(_ASMLANGUAGE)
-  /* don't use this anymore, use K_DECLARE_STACK instead. Remove for 1.11 */
-  #define __stack __aligned(STACK_ALIGN) __DEPRECATED_MACRO
-#endif
+#define Z_STRINGIFY(x) #x
+#define STRINGIFY(s) Z_STRINGIFY(s)
 
 /* concatenate the values of the arguments into one */
 #define _DO_CONCAT(x, y) x ## y
@@ -119,13 +137,86 @@
 #define __syscall static inline
 #else
 #define __syscall
-#endif /* #ifndef ZTEST_UNITTEST */
+#endif /* ZTEST_UNITTEST */
+
+/* Definitions for struct declaration tags. These are sentinel values used by
+ * parse_syscalls.py to gather a list of names of struct declarations that
+ * have these tags applied for them.
+ */
+
+/* Indicates this is a driver subsystem */
+#define __subsystem
+
+/* Indicates this is a network socket object */
+#define __net_socket
 
 #ifndef BUILD_ASSERT
-/* compile-time assertion that makes the build fail */
-#define BUILD_ASSERT(EXPR) typedef char __build_assert_failure[(EXPR) ? 1 : -1]
+/* Compile-time assertion that makes the build to fail.
+ * Common implementation swallows the message.
+ */
+#define BUILD_ASSERT(EXPR, MSG...) \
+	enum _CONCAT(__build_assert_enum, __COUNTER__) { \
+		_CONCAT(__build_assert, __COUNTER__) = 1 / !!(EXPR) \
+	}
 #endif
+
 #ifndef BUILD_ASSERT_MSG
-/* build assertion with message -- common implementation swallows message. */
-#define BUILD_ASSERT_MSG(EXPR, MSG) BUILD_ASSERT(EXPR)
+#define BUILD_ASSERT_MSG(EXPR, MSG) __DEPRECATED_MACRO BUILD_ASSERT(EXPR, MSG)
 #endif
+
+/*
+ * This is meant to be used in conjunction with __in_section() and similar
+ * where scattered structure instances are concatenated together by the linker
+ * and walked by the code at run time just like a contiguous array of such
+ * structures.
+ *
+ * Assemblers and linkers may insert alignment padding by default whose
+ * size is larger than the natural alignment for those structures when
+ * gathering various section segments together, messing up the array walk.
+ * To prevent this, we need to provide an explicit alignment not to rely
+ * on the default that might just work by luck.
+ *
+ * Alignment statements in  linker scripts are not sufficient as
+ * the assembler may add padding by itself to each segment when switching
+ * between sections within the same file even if it merges many such segments
+ * into a single section in the end.
+ */
+#define Z_DECL_ALIGN(type) __aligned(__alignof(type)) type
+
+/*
+ * Convenience helper combining __in_section() and Z_DECL_ALIGN().
+ * The section name is the struct type prepended with an underscore.
+ * The subsection is "static" and the subsubsection is the variable name.
+ *
+ * In the linker script, create output sections for these using
+ * Z_ITERABLE_SECTION_ROM or Z_ITERABLE_SECTION_RAM.
+ */
+#define Z_STRUCT_SECTION_ITERABLE(struct_type, name) \
+	Z_DECL_ALIGN(struct struct_type) name \
+	__in_section(_##struct_type, static, name) __used
+
+/* Special variant of Z_STRUCT_SECTION_ITERABLE, for placing alternate
+ * data types within the iterable section of a specific data type. The
+ * data type sizes and semantics must be equivalent!
+ */
+#define Z_STRUCT_SECTION_ITERABLE_ALTERNATE(out_type, struct_type, name) \
+	Z_DECL_ALIGN(struct struct_type) name \
+	__in_section(_##out_type, static, name) __used
+
+/*
+ * Iterator for structure instances gathered by Z_STRUCT_SECTION_ITERABLE().
+ * The linker must provide a _<struct_type>_list_start symbol and a
+ * _<struct_type>_list_end symbol to mark the start and the end of the
+ * list of struct objects to iterate over.
+ */
+#define Z_STRUCT_SECTION_FOREACH(struct_type, iterator) \
+	extern struct struct_type _CONCAT(_##struct_type, _list_start)[]; \
+	extern struct struct_type _CONCAT(_##struct_type, _list_end)[]; \
+	for (struct struct_type *iterator = \
+			_CONCAT(_##struct_type, _list_start); \
+	     ({ __ASSERT(iterator <= _CONCAT(_##struct_type, _list_end), \
+			 "unexpected list end location"); \
+		iterator < _CONCAT(_##struct_type, _list_end); }); \
+	     iterator++)
+
+#endif /* ZEPHYR_INCLUDE_TOOLCHAIN_COMMON_H_ */

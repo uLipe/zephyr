@@ -14,7 +14,6 @@
  * @brief basic virtual tables required for classes to build
  *
  */
-
 namespace __cxxabiv1 {
 	class __class_type_info {
 		virtual void dummy();

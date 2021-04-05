@@ -13,12 +13,12 @@ portable to both POSIX and Zephyr. As such, it is kept minimal and
 supports only IPv4.
 
 The source code for this sample application can be found at:
-:file:`samples/net/sockets/http_get`.
+:zephyr_file:`samples/net/sockets/http_get`.
 
 Requirements
 ************
 
-- :ref:`networking_with_qemu`
+- :ref:`networking_with_host`
 - or, a board with hardware networking
 - NAT/routing should be set up to allow connections to the Internet
 - DNS server should be available on the host to resolve domain names
@@ -34,16 +34,39 @@ Build the Zephyr version of the application like this:
    :goals: build
    :compact:
 
-``board_to_use`` defaults to ``qemu_x86``. In this case, you can run the
-application in QEMU using ``make run``. If you used another BOARD, you
-will need to consult its documentation for application deployment
-instructions. You can read about Zephyr support for specific boards in
-the documentation at :ref:`boards`.
-
 After the sample starts, it issues HTTP GET request to "google.com:80"
 and dumps the response. You can edit the source code to issue a request
 to any other site on the Internet (or on the local network, in which
 case no NAT/routing setup is needed).
+Exit QEMU by pressing :kbd:`CTRL+A` :kbd:`x`.
+
+Enabling TLS support
+=================================
+
+Enable TLS support in the sample by building the project with the
+``overlay-tls.conf`` overlay file enabled, for example, using these commands:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/net/sockets/http_get
+   :board: qemu_x86
+   :conf: "prj.conf overlay-tls.conf"
+   :goals: build
+   :compact:
+
+An alternative way is to specify ``-DOVERLAY_CONFIG=overlay-tls.conf`` when
+running ``west build`` or ``cmake``.
+
+For boards that support TLS offloading (e.g. TI's cc3220sf_launchxl), use
+``overlay-tls-offload.conf`` instead of ``overlay-tls.conf``.
+
+The certificate used by the sample can be found in the sample's ``src``
+directory. The certificate was selected to enable access to the default website
+configured in the sample (https://google.com). To access a different web page
+over TLS, provide an appropriate certificate to authenticate to that web server.
+
+Note, that TLS support in the sample depends on non-posix, TLS socket
+functionality. Therefore, it is only possible to run TLS in this sample
+on Zephyr.
 
 Running application on POSIX Host
 =================================

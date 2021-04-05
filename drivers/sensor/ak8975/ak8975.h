@@ -4,14 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_AK8975__
-#define __SENSOR_AK8975__
+#ifndef ZEPHYR_DRIVERS_SENSOR_AK8975_AK8975_H_
+#define ZEPHYR_DRIVERS_SENSOR_AK8975_AK8975_H_
 
 #include <device.h>
-
-#define SYS_LOG_DOMAIN "AK8975"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
 
 #define AK8975_REG_CHIP_ID		0x00
 #define AK8975_CHIP_ID			0x48
@@ -27,16 +23,12 @@
 #define AK8975_MEASURE_TIME_US		9000
 #define AK8975_MICRO_GAUSS_PER_BIT	3000
 
-#ifdef CONFIG_MPU9150
-#if CONFIG_AK8975_I2C_ADDR != 0x0C
+#if DT_NODE_HAS_PROP(DT_INST(0, invensense_mpu9150), reg)
+#if DT_REG_ADDR(DT_INST(0, asahi_kasei_ak8975)) != 0x0C
 #error "I2C address must be 0x0C when AK8975 is part of a MPU9150 chip"
 #endif
 
-#ifdef CONFIG_MPU9150_I2C_ADDR
-#define MPU9150_I2C_ADDR		CONFIG_MPU9150_I2C_ADDR
-#else
-#define MPU9150_I2C_ADDR		CONFIG_MPU6050_I2C_ADDR
-#endif
+#define MPU9150_I2C_ADDR		DT_REG_ADDR(DT_INST(0, invensense_mpu9150))
 
 #define MPU9150_REG_BYPASS_CFG		0x37
 #define MPU9150_I2C_BYPASS_EN		BIT(1)
@@ -44,19 +36,19 @@
 #define MPU9150_REG_PWR_MGMT1		0x6B
 #define MPU9150_SLEEP_EN		BIT(6)
 
-#endif /* CONFIG_MPU9150 */
+#endif /* DT_NODE_HAS_PROP(DT_INST(0, invensense_mpu9150), reg) */
 
 
 struct ak8975_data {
-	struct device *i2c;
+	const struct device *i2c;
 
-	s16_t x_sample;
-	s16_t y_sample;
-	s16_t z_sample;
+	int16_t x_sample;
+	int16_t y_sample;
+	int16_t z_sample;
 
-	u8_t x_adj;
-	u8_t y_adj;
-	u8_t z_adj;
+	uint8_t x_adj;
+	uint8_t y_adj;
+	uint8_t z_adj;
 };
 
-#endif /* __SENSOR_AK8975__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_AK8975_AK8975_H_ */

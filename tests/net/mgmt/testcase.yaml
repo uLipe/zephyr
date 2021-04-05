@@ -1,9 +1,11 @@
+common:
+  depends_on: netif
+  min_ram: 16
+  tags: net mgmt
 tests:
-  - test:
-      filter: not CONFIG_BT
-      min_ram: 12
-      tags: net
-  - test_with_bt:
-      filter: CONFIG_BT
-      min_ram: 16
-      tags: net
+  net.management:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_COOPERATIVE=y
+  net.management.preempt:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_PREEMPTIVE=y

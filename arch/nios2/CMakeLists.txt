@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 if(CONFIG_GP_NONE)
 set(gpopt none)
 elseif(CONFIG_GP_LOCAL)
@@ -32,6 +34,4 @@ else()
 zephyr_cc_option(-mno-hw-div)
 endif()
 
-
-add_subdirectory(soc/${SOC_PATH})
 add_subdirectory(core)

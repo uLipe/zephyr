@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_SX9500_H__
-#define __SENSOR_SX9500_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_SX9500_SX9500_H_
+#define ZEPHYR_DRIVERS_SENSOR_SX9500_SX9500_H_
 
 #include <zephyr/types.h>
 #include <device.h>
@@ -25,9 +25,9 @@
 #define SX9500_NEAR_FAR_IRQ		((1 << 5) | (1 << 6))
 
 struct sx9500_data {
-	struct device *i2c_master;
-	u16_t i2c_slave_addr;
-	u8_t prox_stat;
+	const struct device *i2c_master;
+	uint16_t i2c_slave_addr;
+	uint8_t prox_stat;
 
 	struct gpio_callback gpio_cb;
 
@@ -37,10 +37,10 @@ struct sx9500_data {
 
 #ifdef CONFIG_SX9500_TRIGGER_GLOBAL_THREAD
 	struct k_work work;
-	struct device *dev;
 #endif
 
 #ifdef CONFIG_SX9500_TRIGGER
+	const struct device *dev;
 	struct sensor_trigger trigger_drdy;
 	struct sensor_trigger trigger_near_far;
 
@@ -50,18 +50,15 @@ struct sx9500_data {
 };
 
 #ifdef CONFIG_SX9500_TRIGGER
-int sx9500_setup_interrupt(struct device *dev);
-int sx9500_trigger_set(struct device *dev,
+int sx9500_setup_interrupt(const struct device *dev);
+int sx9500_trigger_set(const struct device *dev,
 		       const struct sensor_trigger *trig,
 		       sensor_trigger_handler_t handler);
 #else
-static inline int sx9500_setup_interrupt(struct device *dev)
+static inline int sx9500_setup_interrupt(const struct device *dev)
 {
 	return 0;
 }
 #endif
 
-#define SYS_LOG_DOMAIN "SX9500"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_SX9500_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_SX9500_SX9500_H_ */

@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef _DRIVERS_TIMER_CMSDK_AHB_
-#define _DRIVERS_TIMER_CMSDK_AHB_
+#ifndef ZEPHYR_DRIVERS_COUNTER_TIMER_CMSDK_APB_H_
+#define ZEPHYR_DRIVERS_COUNTER_TIMER_CMSDK_APB_H_
 
-#include <counter.h>
+#include <drivers/counter.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,16 +14,16 @@ extern "C" {
 
 struct timer_cmsdk_apb {
 	/* Offset: 0x000 (R/W) control register */
-	volatile u32_t ctrl;
+	volatile uint32_t ctrl;
 	/* Offset: 0x004 (R/W) current value register */
-	volatile u32_t value;
+	volatile uint32_t value;
 	/* Offset: 0x008 (R/W) reload value register */
-	volatile u32_t reload;
+	volatile uint32_t reload;
 	union {
 		/* Offset: 0x00C (R/ ) interrupt status register */
-		volatile u32_t intstatus;
+		volatile uint32_t intstatus;
 		/* Offset: 0x00C ( /W) interruptclear register */
-		volatile u32_t intclear;
+		volatile uint32_t intclear;
 	};
 };
 
@@ -37,4 +37,4 @@ struct timer_cmsdk_apb {
 }
 #endif
 
-#endif /* _DRIVERS_TIMER_CMSDK_AHB_ */
+#endif /* ZEPHYR_DRIVERS_COUNTER_TIMER_CMSDK_APB_H_ */

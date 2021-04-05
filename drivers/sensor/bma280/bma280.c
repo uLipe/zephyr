@@ -4,18 +4,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <i2c.h>
+#define DT_DRV_COMPAT bosch_bma280
+
+#include <drivers/i2c.h>
 #include <init.h>
-#include <sensor.h>
-#include <misc/__assert.h>
+#include <drivers/sensor.h>
+#include <sys/__assert.h>
+#include <logging/log.h>
 
 #include "bma280.h"
 
-static int bma280_sample_fetch(struct device *dev, enum sensor_channel chan)
+LOG_MODULE_REGISTER(BMA280, CONFIG_SENSOR_LOG_LEVEL);
+
+static int bma280_sample_fetch(const struct device *dev,
+			       enum sensor_channel chan)
 {
-	struct bma280_data *drv_data = dev->driver_data;
-	u8_t buf[6];
-	u8_t lsb;
+	struct bma280_data *drv_data = dev->data;
+	uint8_t buf[6];
+	uint8_t lsb;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
 
@@ -25,23 +31,23 @@ static int bma280_sample_fetch(struct device *dev, enum sensor_channel chan)
 	 */
 	if (i2c_burst_read(drv_data->i2c, BMA280_I2C_ADDRESS,
 			   BMA280_REG_ACCEL_X_LSB, buf, 6) < 0) {
-		SYS_LOG_DBG("Could not read accel axis data");
+		LOG_DBG("Could not read accel axis data");
 		return -EIO;
 	}
 
 	lsb = (buf[0] & BMA280_ACCEL_LSB_MASK) >> BMA280_ACCEL_LSB_SHIFT;
-	drv_data->x_sample = (((s8_t)buf[1]) << BMA280_ACCEL_LSB_BITS) | lsb;
+	drv_data->x_sample = (((int8_t)buf[1]) << BMA280_ACCEL_LSB_BITS) | lsb;
 
 	lsb = (buf[2] & BMA280_ACCEL_LSB_MASK) >> BMA280_ACCEL_LSB_SHIFT;
-	drv_data->y_sample = (((s8_t)buf[3]) << BMA280_ACCEL_LSB_BITS) | lsb;
+	drv_data->y_sample = (((int8_t)buf[3]) << BMA280_ACCEL_LSB_BITS) | lsb;
 
 	lsb = (buf[4] & BMA280_ACCEL_LSB_MASK) >> BMA280_ACCEL_LSB_SHIFT;
-	drv_data->z_sample = (((s8_t)buf[5]) << BMA280_ACCEL_LSB_BITS) | lsb;
+	drv_data->z_sample = (((int8_t)buf[5]) << BMA280_ACCEL_LSB_BITS) | lsb;
 
 	if (i2c_reg_read_byte(drv_data->i2c, BMA280_I2C_ADDRESS,
 			      BMA280_REG_TEMP,
-			      (u8_t *)&drv_data->temp_sample) < 0) {
-		SYS_LOG_DBG("Could not read temperature data");
+			      (uint8_t *)&drv_data->temp_sample) < 0) {
+		LOG_DBG("Could not read temperature data");
 		return -EIO;
 	}
 
@@ -49,7 +55,7 @@ static int bma280_sample_fetch(struct device *dev, enum sensor_channel chan)
 }
 
 static void bma280_channel_accel_convert(struct sensor_value *val,
-					s64_t raw_val)
+					int64_t raw_val)
 {
 	/*
 	 * accel_val = (sample * BMA280_PMU_FULL_RAGE) /
@@ -67,11 +73,11 @@ static void bma280_channel_accel_convert(struct sensor_value *val,
 	}
 }
 
-static int bma280_channel_get(struct device *dev,
+static int bma280_channel_get(const struct device *dev,
 			      enum sensor_channel chan,
 			      struct sensor_value *val)
 {
-	struct bma280_data *drv_data = dev->driver_data;
+	struct bma280_data *drv_data = dev->data;
 
 	/*
 	 * See datasheet "Sensor data" section for
@@ -87,7 +93,7 @@ static int bma280_channel_get(struct device *dev,
 		bma280_channel_accel_convert(val, drv_data->x_sample);
 		bma280_channel_accel_convert(val + 1, drv_data->y_sample);
 		bma280_channel_accel_convert(val + 2, drv_data->z_sample);
-	} else if (chan == SENSOR_CHAN_TEMP) {
+	} else if (chan == SENSOR_CHAN_DIE_TEMP) {
 		/* temperature_val = 23 + sample / 2 */
 		val->val1 = (drv_data->temp_sample >> 1) + 23;
 		val->val2 = 500000 * (drv_data->temp_sample & 1);
@@ -108,56 +114,55 @@ static const struct sensor_driver_api bma280_driver_api = {
 	.channel_get = bma280_channel_get,
 };
 
-int bma280_init(struct device *dev)
+int bma280_init(const struct device *dev)
 {
-	struct bma280_data *drv_data = dev->driver_data;
-	u8_t id = 0;
+	struct bma280_data *drv_data = dev->data;
+	uint8_t id = 0U;
 
-	drv_data->i2c = device_get_binding(CONFIG_BMA280_I2C_MASTER_DEV_NAME);
+	drv_data->i2c = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (drv_data->i2c == NULL) {
-		SYS_LOG_DBG("Could not get pointer to %s device",
-			    CONFIG_BMA280_I2C_MASTER_DEV_NAME);
+		LOG_DBG("Could not get pointer to %s device",
+			    DT_INST_BUS_LABEL(0));
 		return -EINVAL;
 	}
 
 	/* read device ID */
 	if (i2c_reg_read_byte(drv_data->i2c, BMA280_I2C_ADDRESS,
 			      BMA280_REG_CHIP_ID, &id) < 0) {
-		SYS_LOG_DBG("Could not read chip id");
+		LOG_DBG("Could not read chip id");
 		return -EIO;
 	}
 
 	if (id != BMA280_CHIP_ID) {
-		SYS_LOG_DBG("Unexpected chip id (%x)", id);
+		LOG_DBG("Unexpected chip id (%x)", id);
 		return -EIO;
 	}
 
 	if (i2c_reg_write_byte(drv_data->i2c, BMA280_I2C_ADDRESS,
 			       BMA280_REG_PMU_BW, BMA280_PMU_BW) < 0) {
-		SYS_LOG_DBG("Could not set data filter bandwidth");
+		LOG_DBG("Could not set data filter bandwidth");
 		return -EIO;
 	}
 
 	/* set g-range */
 	if (i2c_reg_write_byte(drv_data->i2c, BMA280_I2C_ADDRESS,
 			       BMA280_REG_PMU_RANGE, BMA280_PMU_RANGE) < 0) {
-		SYS_LOG_DBG("Could not set data g-range");
+		LOG_DBG("Could not set data g-range");
 		return -EIO;
 	}
 
 #ifdef CONFIG_BMA280_TRIGGER
 	if (bma280_init_interrupt(dev) < 0) {
-		SYS_LOG_DBG("Could not initialize interrupts");
+		LOG_DBG("Could not initialize interrupts");
 		return -EIO;
 	}
 #endif
-
-	dev->driver_api = &bma280_driver_api;
 
 	return 0;
 }
 
 struct bma280_data bma280_driver;
 
-DEVICE_INIT(bma280, CONFIG_BMA280_NAME, bma280_init, &bma280_driver,
-	    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY);
+DEVICE_DT_INST_DEFINE(0, bma280_init, device_pm_control_nop, &bma280_driver,
+		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
+		    &bma280_driver_api);

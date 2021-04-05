@@ -12,75 +12,57 @@
  * ARCv2 CPUs.
  */
 
-#include <kernel_structs.h>
+#include <kernel.h>
 #include <offsets_short.h>
-#include <toolchain.h>
 #include <arch/cpu.h>
-#include <misc/printk.h>
+#include <logging/log.h>
+#include <kernel_arch_data.h>
+#include <arch/arc/v2/exc.h>
 
-const NANO_ESF _default_esf = {
-	0xdeaddead, /* placeholder */
-};
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
-/**
- *
- * @brief Kernel fatal error handler
- *
- * This routine is called when fatal error conditions are detected by software
- * and is responsible only for reporting the error. Once reported, it then
- * invokes the user provided routine _SysFatalErrorHandler() which is
- * responsible for implementing the error handling policy.
- *
- * The caller is expected to always provide a usable ESF. In the event that the
- * fatal error does not have a hardware generated ESF, the caller should either
- * create its own or use a pointer to the global default ESF <_default_esf>.
- *
- * @return This function does not return.
- */
-FUNC_NORETURN void _NanoFatalErrorHandler(unsigned int reason,
-							const NANO_ESF *pEsf)
+#ifdef CONFIG_ARC_EXCEPTION_DEBUG
+static void dump_arc_esf(const z_arch_esf_t *esf)
 {
-	switch (reason) {
-	case _NANO_ERR_HW_EXCEPTION:
-		break;
-
-#if defined(CONFIG_STACK_CANARIES) || defined(CONFIG_ARC_STACK_CHECKING)
-	case _NANO_ERR_STACK_CHK_FAIL:
-		printk("***** Stack Check Fail! *****\n");
-		break;
+	LOG_ERR(" r0: 0x%08x  r1: 0x%08x  r2: 0x%08x  r3: 0x%08x",
+		esf->r0, esf->r1, esf->r2, esf->r3);
+	LOG_ERR(" r4: 0x%08x  r5: 0x%08x  r6: 0x%08x  r7: 0x%08x",
+		esf->r4, esf->r5, esf->r6, esf->r7);
+	LOG_ERR(" r8: 0x%08x  r9: 0x%08x r10: 0x%08x r11: 0x%08x",
+		esf->r8, esf->r9, esf->r10, esf->r11);
+	LOG_ERR("r12: 0x%08x r13: 0x%08x  pc: 0x%08x",
+		esf->r12, esf->r13, esf->pc);
+	LOG_ERR(" blink: 0x%08x status32: 0x%08x", esf->blink, esf->status32);
+	LOG_ERR("lp_end: 0x%08x lp_start: 0x%08x lp_count: 0x%08x",
+		esf->lp_end, esf->lp_start, esf->lp_count);
+}
 #endif
 
-	case _NANO_ERR_ALLOCATION_FAIL:
-		printk("**** Kernel Allocation Failure! ****\n");
-		break;
-
-	case _NANO_ERR_KERNEL_OOPS:
-		printk("***** Kernel OOPS! *****\n");
-		break;
-
-	case _NANO_ERR_KERNEL_PANIC:
-		printk("***** Kernel Panic! *****\n");
-		break;
-
-	default:
-		printk("**** Unknown Fatal Error %d! ****\n", reason);
-		break;
+void z_arc_fatal_error(unsigned int reason, const z_arch_esf_t *esf)
+{
+#ifdef CONFIG_ARC_EXCEPTION_DEBUG
+	if (esf != NULL) {
+		dump_arc_esf(esf);
 	}
-	printk("Current thread ID = %p\n"
-	       "Faulting instruction address = 0x%lx\n",
-	       k_current_get(),
-	       _arc_v2_aux_reg_read(_ARC_V2_ERET));
+#endif /* CONFIG_ARC_EXCEPTION_DEBUG */
 
-	/*
-	 * Now that the error has been reported, call the user implemented
-	 * policy
-	 * to respond to the error.  The decisions as to what responses are
-	 * appropriate to the various errors are something the customer must
-	 * decide.
-	 */
+	z_fatal_error(reason, esf);
+}
 
-	_SysFatalErrorHandler(reason, pEsf);
+FUNC_NORETURN void arch_syscall_oops(void *ssf_ptr)
+{
+	/* TODO: convert ssf_ptr contents into an esf, they are not the same */
+	ARG_UNUSED(ssf_ptr);
 
-	for (;;)
-		;
+	z_arc_fatal_error(K_ERR_KERNEL_OOPS, NULL);
+	CODE_UNREACHABLE;
+}
+
+FUNC_NORETURN void arch_system_halt(unsigned int reason)
+{
+	ARG_UNUSED(reason);
+
+	__asm__("brk");
+
+	CODE_UNREACHABLE;
 }

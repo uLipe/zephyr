@@ -2,124 +2,69 @@
 
 /*
  * Copyright (c) 2017 PHYTEC Messtechnik GmbH
+ * Copyright (c) 2017, 2018 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <misc/byteorder.h>
+#include <string.h>
+#include <sys/byteorder.h>
+#include <sys/__assert.h>
 #include <usb/usbstruct.h>
 #include <usb/usb_device.h>
 #include <usb/usb_common.h>
-#include <usb/class/usb_msc.h>
-#include <usb/class/usb_cdc.h>
 #include "usb_descriptor.h"
+#include <drivers/hwinfo.h>
 
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_USB_LEVEL
-#include <logging/sys_log.h>
+#define LOG_LEVEL CONFIG_USB_DEVICE_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_REGISTER(usb_descriptor);
 
 /*
- * The USB Unicode bString is twice as long as initializer_string
- * without null character:
- *   uc_length = (sizeof(initializer_string) - 1) * 2
- * or:
- *   uc_length = sizeof(initializer_string) * 2 - 2
- * the last index of the bString is:
- *   idx_max = sizeof(initializer_string) * 2 - 2 - 1
- * and the last index of the initializer_string without null character is:
- *   asci_idx_max = sizeof(initializer_string) - 1 - 1
- *
- *
- * The length of the string descriptor is calculated from the
- * size of the two octets bLength and bDescriptorType plus the
- * length of the Unicode string:
- *   descr_length = 2 + uc_length
- *   descr_length = 2 + sizeof(initializer-string) * 2 - 2
- *   descr_length = sizeof(initializer-string) * 2
- *
+ * The last index of the initializer_string without null character is:
+ *   ascii_idx_max = bLength / 2 - 2
+ * Use this macro to determine the last index of ASCII7 string.
  */
+#define USB_BSTRING_ASCII_IDX_MAX(n)	(n / 2 - 2)
+
+/*
+ * The last index of the bString is:
+ *   utf16le_idx_max = sizeof(initializer_string) * 2 - 2 - 1
+ *   utf16le_idx_max = bLength - 2 - 1
+ * Use this macro to determine the last index of UTF16LE string.
+ */
+#define USB_BSTRING_UTF16LE_IDX_MAX(n)	(n - 3)
+
+/* Linker-defined symbols bound the USB descriptor structs */
+extern struct usb_desc_header __usb_descriptor_start[];
+extern struct usb_desc_header __usb_descriptor_end[];
+extern struct usb_cfg_data __usb_data_start[];
+extern struct usb_cfg_data __usb_data_end[];
 
 /* Structure representing the global USB description */
-struct dev_common_descriptor {
+struct common_descriptor {
 	struct usb_device_descriptor device_descriptor;
 	struct usb_cfg_descriptor cfg_descr;
-#ifdef CONFIG_USB_CDC_ACM
-	struct usb_cdc_acm_config {
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-		struct usb_association_descriptor iad_cdc;
-#endif
-		struct usb_if_descriptor if0;
-		struct cdc_header_descriptor if0_header;
-		struct cdc_cm_descriptor if0_cm;
-		struct cdc_acm_descriptor if0_acm;
-		struct cdc_union_descriptor if0_union;
-		struct usb_ep_descriptor if0_int_ep;
-
-		struct usb_if_descriptor if1;
-		struct usb_ep_descriptor if1_in_ep;
-		struct usb_ep_descriptor if1_out_ep;
-	} __packed cdc_acm_cfg;
-#endif
-#ifdef CONFIG_USB_DEVICE_NETWORK_ECM
-	struct usb_cdc_ecm_config {
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-		struct usb_association_descriptor iad;
-#endif
-		struct usb_if_descriptor if0;
-		struct cdc_header_descriptor if0_header;
-		struct cdc_union_descriptor if0_union;
-		struct cdc_ecm_descriptor if0_netfun_ecm;
-		struct usb_ep_descriptor if0_int_ep;
-
-		struct usb_if_descriptor if1_0;
-
-		struct usb_if_descriptor if1_1;
-		struct usb_ep_descriptor if1_1_in_ep;
-		struct usb_ep_descriptor if1_1_out_ep;
-	} __packed cdc_ecm_cfg;
-#endif
-#ifdef CONFIG_USB_MASS_STORAGE
-	struct usb_mass_config {
-		struct usb_if_descriptor if0;
-		struct usb_ep_descriptor if0_in_ep;
-		struct usb_ep_descriptor if0_out_ep;
-	} __packed mass_cfg;
-#endif
-	struct usb_string_desription {
-		struct usb_string_descriptor lang_descr;
-		struct usb_mfr_descriptor {
-			u8_t bLength;
-			u8_t bDescriptorType;
-			u8_t bString[MFR_DESC_LENGTH - 2];
-		} __packed unicode_mfr;
-
-		struct usb_product_descriptor {
-			u8_t bLength;
-			u8_t bDescriptorType;
-			u8_t bString[PRODUCT_DESC_LENGTH - 2];
-		} __packed unicode_product;
-
-		struct usb_sn_descriptor {
-			u8_t bLength;
-			u8_t bDescriptorType;
-			u8_t bString[SN_DESC_LENGTH - 2];
-		} __packed unicode_sn;
-#ifdef CONFIG_USB_DEVICE_NETWORK_ECM
-		struct usb_cdc_ecm_mac_descriptor {
-			u8_t bLength;
-			u8_t bDescriptorType;
-			u8_t bString[ECM_MAC_DESC_LENGTH - 2];
-		} __packed unicode_mac;
-#endif /* CONFIG_USB_DEVICE_NETWORK_ECM */
-	} __packed string_descr;
-	struct usb_desc_header term_descr;
 } __packed;
 
-static struct dev_common_descriptor common_desc = {
+#define USB_DESC_MANUFACTURER_IDX			1
+#define USB_DESC_PRODUCT_IDX				2
+#define USB_DESC_SERIAL_NUMBER_IDX			3
+
+/*
+ * Device and configuration descriptor placed in the device section,
+ * no additional descriptor may be placed there.
+ */
+USBD_DEVICE_DESCR_DEFINE(primary) struct common_descriptor common_desc = {
 	/* Device descriptor */
 	.device_descriptor = {
 		.bLength = sizeof(struct usb_device_descriptor),
 		.bDescriptorType = USB_DEVICE_DESC,
-		.bcdUSB = sys_cpu_to_le16(USB_1_1),
+#ifdef CONFIG_USB_DEVICE_BOS
+		.bcdUSB = sys_cpu_to_le16(USB_2_1),
+#else
+		.bcdUSB = sys_cpu_to_le16(USB_2_0),
+#endif
 #ifdef CONFIG_USB_COMPOSITE_DEVICE
 		.bDeviceClass = MISC_CLASS,
 		.bDeviceSubClass = 0x02,
@@ -129,359 +74,467 @@ static struct dev_common_descriptor common_desc = {
 		.bDeviceSubClass = 0,
 		.bDeviceProtocol = 0,
 #endif
-		.bMaxPacketSize0 = MAX_PACKET_SIZE0,
-		.idVendor = sys_cpu_to_le16((u16_t)CONFIG_USB_DEVICE_VID),
-		.idProduct = sys_cpu_to_le16((u16_t)CONFIG_USB_DEVICE_PID),
+		.bMaxPacketSize0 = USB_MAX_CTRL_MPS,
+		.idVendor = sys_cpu_to_le16((uint16_t)CONFIG_USB_DEVICE_VID),
+		.idProduct = sys_cpu_to_le16((uint16_t)CONFIG_USB_DEVICE_PID),
 		.bcdDevice = sys_cpu_to_le16(BCDDEVICE_RELNUM),
-		.iManufacturer = 1,
-		.iProduct = 2,
-		.iSerialNumber = 3,
+		.iManufacturer = USB_DESC_MANUFACTURER_IDX,
+		.iProduct = USB_DESC_PRODUCT_IDX,
+		.iSerialNumber = USB_DESC_SERIAL_NUMBER_IDX,
 		.bNumConfigurations = 1,
 	},
 	/* Configuration descriptor */
 	.cfg_descr = {
 		.bLength = sizeof(struct usb_cfg_descriptor),
 		.bDescriptorType = USB_CONFIGURATION_DESC,
-		.wTotalLength = sizeof(struct dev_common_descriptor)
-			      - sizeof(struct usb_device_descriptor)
-			      - sizeof(struct usb_string_desription)
-			      - sizeof(struct usb_desc_header),
-		.bNumInterfaces = NUMOF_IFACES,
+		/*wTotalLength will be fixed in usb_fix_descriptor() */
+		.wTotalLength = 0,
+		.bNumInterfaces = 0,
 		.bConfigurationValue = 1,
 		.iConfiguration = 0,
 		.bmAttributes = USB_CONFIGURATION_ATTRIBUTES,
-		.bMaxPower = MAX_LOW_POWER,
-	},
-#ifdef CONFIG_USB_CDC_ACM
-	.cdc_acm_cfg = {
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-		.iad_cdc = {
-			.bLength = sizeof(struct usb_association_descriptor),
-			.bDescriptorType = USB_ASSOCIATION_DESC,
-			.bFirstInterface = FIRST_IFACE_CDC_ACM,
-			.bInterfaceCount = 0x02,
-			.bFunctionClass = COMMUNICATION_DEVICE_CLASS,
-			.bFunctionSubClass = ACM_SUBCLASS,
-			.bFunctionProtocol = 0,
-			.iFunction = 0,
-		},
-#endif
-		/* Interface descriptor */
-		.if0 = {
-			.bLength = sizeof(struct usb_if_descriptor),
-			.bDescriptorType = USB_INTERFACE_DESC,
-			.bInterfaceNumber = FIRST_IFACE_CDC_ACM,
-			.bAlternateSetting = 0,
-			.bNumEndpoints = 1,
-			.bInterfaceClass = COMMUNICATION_DEVICE_CLASS,
-			.bInterfaceSubClass = ACM_SUBCLASS,
-			.bInterfaceProtocol = V25TER_PROTOCOL,
-			.iInterface = 0,
-		},
-		/* Header Functional Descriptor */
-		.if0_header = {
-			.bFunctionLength = sizeof(struct cdc_header_descriptor),
-			.bDescriptorType = CS_INTERFACE,
-			.bDescriptorSubtype = HEADER_FUNC_DESC,
-			.bcdCDC = sys_cpu_to_le16(USB_1_1),
-		},
-		/* Call Management Functional Descriptor */
-		.if0_cm = {
-			.bFunctionLength = sizeof(struct cdc_cm_descriptor),
-			.bDescriptorType = CS_INTERFACE,
-			.bDescriptorSubtype = CALL_MANAGEMENT_FUNC_DESC,
-			.bmCapabilities = 0x02,
-			.bDataInterface = 1,
-		},
-		/* ACM Functional Descriptor */
-		.if0_acm = {
-			.bFunctionLength = sizeof(struct cdc_acm_descriptor),
-			.bDescriptorType = CS_INTERFACE,
-			.bDescriptorSubtype = ACM_FUNC_DESC,
-			/* Device supports the request combination of:
-			 *	Set_Line_Coding,
-			 *	Set_Control_Line_State,
-			 *	Get_Line_Coding
-			 *	and the notification Serial_State
-			 */
-			.bmCapabilities = 0x02,
-		},
-		/* Union Functional Descriptor */
-		.if0_union = {
-			.bFunctionLength = sizeof(struct cdc_union_descriptor),
-			.bDescriptorType = CS_INTERFACE,
-			.bDescriptorSubtype = UNION_FUNC_DESC,
-			.bControlInterface = 0,
-			.bSubordinateInterface0 = 1,
-		},
-		/* Endpoint INT */
-		.if0_int_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_CDC_ACM_INT_EP_ADDR,
-			.bmAttributes = USB_DC_EP_INTERRUPT,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_CDC_ACM_INTERRUPT_EP_MPS),
-			.bInterval = 0x0A,
-		},
-		/* Interface descriptor */
-		.if1 = {
-			.bLength = sizeof(struct usb_if_descriptor),
-			.bDescriptorType = USB_INTERFACE_DESC,
-			.bInterfaceNumber = FIRST_IFACE_CDC_ACM + 1,
-			.bAlternateSetting = 0,
-			.bNumEndpoints = 2,
-			.bInterfaceClass = COMMUNICATION_DEVICE_CLASS_DATA,
-			.bInterfaceSubClass = 0,
-			.bInterfaceProtocol = 0,
-			.iInterface = 0,
-		},
-		/* First Endpoint IN */
-		.if1_in_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_CDC_ACM_IN_EP_ADDR,
-			.bmAttributes = USB_DC_EP_BULK,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_CDC_ACM_BULK_EP_MPS),
-			.bInterval = 0x00,
-		},
-		/* Second Endpoint OUT */
-		.if1_out_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_CDC_ACM_OUT_EP_ADDR,
-			.bmAttributes = USB_DC_EP_BULK,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_CDC_ACM_BULK_EP_MPS),
-			.bInterval = 0x00,
-		},
-	},
-#endif
-#ifdef CONFIG_USB_DEVICE_NETWORK_ECM
-	.cdc_ecm_cfg = {
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-		.iad = {
-			.bLength = sizeof(struct usb_association_descriptor),
-			.bDescriptorType = USB_ASSOCIATION_DESC,
-			.bFirstInterface = FIRST_IFACE_CDC_ECM,
-			.bInterfaceCount = 0x02,
-			.bFunctionClass = COMMUNICATION_DEVICE_CLASS,
-			.bFunctionSubClass = CDC_ECM_SUBCLASS,
-			.bFunctionProtocol = 0,
-			.iFunction = 0,
-		},
-#endif
-
-		/* Interface descriptor 0 */
-		/* CDC Communication interface */
-		.if0 = {
-			.bLength = sizeof(struct usb_if_descriptor),
-			.bDescriptorType = USB_INTERFACE_DESC,
-			.bInterfaceNumber = FIRST_IFACE_CDC_ECM,
-			.bAlternateSetting = 0,
-			.bNumEndpoints = 1,
-			.bInterfaceClass = COMMUNICATION_DEVICE_CLASS,
-			.bInterfaceSubClass = CDC_ECM_SUBCLASS,
-			.bInterfaceProtocol = 0,
-			.iInterface = 0,
-		},
-		/* Header Functional Descriptor */
-		.if0_header = {
-			.bFunctionLength = sizeof(struct cdc_header_descriptor),
-			.bDescriptorType = CS_INTERFACE,
-			.bDescriptorSubtype = HEADER_FUNC_DESC,
-			.bcdCDC = sys_cpu_to_le16(USB_1_1),
-		},
-		/* Union Functional Descriptor */
-		.if0_union = {
-			.bFunctionLength = sizeof(struct cdc_union_descriptor),
-			.bDescriptorType = CS_INTERFACE,
-			.bDescriptorSubtype = UNION_FUNC_DESC,
-			.bControlInterface = 0,
-			.bSubordinateInterface0 = 1,
-		},
-		/* Ethernet Networking Functional descriptor */
-		.if0_netfun_ecm = {
-			.bFunctionLength = sizeof(struct cdc_ecm_descriptor),
-			.bDescriptorType = CS_INTERFACE,
-			.bDescriptorSubtype = ETHERNET_FUNC_DESC,
-			.iMACAddress = 4,
-			.bmEthernetStatistics = sys_cpu_to_le32(0), /* None */
-			.wMaxSegmentSize = sys_cpu_to_le16(1514),
-			.wNumberMCFilters = sys_cpu_to_le16(0), /* None */
-			.bNumberPowerFilters = 0, /* No wake up */
-		},
-		/* Notification EP Descriptor */
-		.if0_int_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_CDC_ECM_INT_EP_ADDR,
-			.bmAttributes = USB_DC_EP_INTERRUPT,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_CDC_ECM_INTERRUPT_EP_MPS),
-			.bInterval = 0x09,
-		},
-
-		/* Interface descriptor 1/0 */
-		/* CDC Data Interface */
-		.if1_0 = {
-			.bLength = sizeof(struct usb_if_descriptor),
-			.bDescriptorType = USB_INTERFACE_DESC,
-			.bInterfaceNumber = FIRST_IFACE_CDC_ECM + 1,
-			.bAlternateSetting = 0,
-			.bNumEndpoints = 0,
-			.bInterfaceClass = COMMUNICATION_DEVICE_CLASS_DATA,
-			.bInterfaceSubClass = 0,
-			.bInterfaceProtocol = 0,
-			.iInterface = 0,
-		},
-
-		/* Interface descriptor 1/1 */
-		/* CDC Data Interface */
-		.if1_1 = {
-			.bLength = sizeof(struct usb_if_descriptor),
-			.bDescriptorType = USB_INTERFACE_DESC,
-			.bInterfaceNumber = FIRST_IFACE_CDC_ECM + 1,
-			.bAlternateSetting = 1,
-			.bNumEndpoints = 2,
-			.bInterfaceClass = COMMUNICATION_DEVICE_CLASS_DATA,
-			.bInterfaceSubClass = CDC_ECM_SUBCLASS,
-			.bInterfaceProtocol = 0,
-			.iInterface = 0,
-		},
-		/* Data Endpoint IN */
-		.if1_1_in_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_CDC_ECM_IN_EP_ADDR,
-			.bmAttributes = USB_DC_EP_BULK,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_CDC_ECM_BULK_EP_MPS),
-			.bInterval = 0x00,
-		},
-		/* Data Endpoint OUT */
-		.if1_1_out_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_CDC_ECM_OUT_EP_ADDR,
-			.bmAttributes = USB_DC_EP_BULK,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_CDC_ECM_BULK_EP_MPS),
-			.bInterval = 0x00,
-		},
-	},
-#endif
-#ifdef CONFIG_USB_MASS_STORAGE
-	.mass_cfg = {
-		/* Interface descriptor */
-		.if0 = {
-			.bLength = sizeof(struct usb_if_descriptor),
-			.bDescriptorType = USB_INTERFACE_DESC,
-			.bInterfaceNumber = FIRST_IFACE_MASS_STORAGE,
-			.bAlternateSetting = 0,
-			.bNumEndpoints = 2,
-			.bInterfaceClass = MASS_STORAGE_CLASS,
-			.bInterfaceSubClass = SCSI_TRANSPARENT_SUBCLASS,
-			.bInterfaceProtocol = BULK_ONLY_PROTOCOL,
-			.iInterface = 0,
-		},
-		/* First Endpoint IN */
-		.if0_in_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_MASS_STORAGE_IN_EP_ADDR,
-			.bmAttributes = USB_DC_EP_BULK,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_MASS_STORAGE_BULK_EP_MPS),
-			.bInterval = 0x00,
-		},
-		/* Second Endpoint OUT */
-		.if0_out_ep = {
-			.bLength = sizeof(struct usb_ep_descriptor),
-			.bDescriptorType = USB_ENDPOINT_DESC,
-			.bEndpointAddress = CONFIG_MASS_STORAGE_OUT_EP_ADDR,
-			.bmAttributes = USB_DC_EP_BULK,
-			.wMaxPacketSize =
-				sys_cpu_to_le16(
-				CONFIG_MASS_STORAGE_BULK_EP_MPS),
-			.bInterval = 0x00,
-		},
-	},
-#endif
-	.string_descr = {
-		.lang_descr = {
-			.bLength = sizeof(struct usb_string_descriptor),
-			.bDescriptorType = USB_STRING_DESC,
-			.bString = sys_cpu_to_le16(0x0409),
-		},
-		/* Manufacturer String Descriptor */
-		.unicode_mfr = {
-			.bLength = MFR_DESC_LENGTH,
-			.bDescriptorType = USB_STRING_DESC,
-			.bString = CONFIG_USB_DEVICE_MANUFACTURER,
-		},
-		/* Product String Descriptor */
-		.unicode_product = {
-			.bLength = PRODUCT_DESC_LENGTH,
-			.bDescriptorType = USB_STRING_DESC,
-			.bString = CONFIG_USB_DEVICE_PRODUCT,
-		},
-		/* Serial Number String Descriptor */
-		.unicode_sn = {
-			.bLength = SN_DESC_LENGTH,
-			.bDescriptorType = USB_STRING_DESC,
-			.bString = CONFIG_USB_DEVICE_SN,
-		},
-#ifdef CONFIG_USB_DEVICE_NETWORK_ECM
-		.unicode_mac = {
-			.bLength = ECM_MAC_DESC_LENGTH,
-			.bDescriptorType = USB_STRING_DESC,
-			.bString = CONFIG_USB_DEVICE_NETWORK_ECM_MAC
-		},
-#endif
-	},
-	.term_descr = {
-		.bLength = 0,
-		.bDescriptorType = 0,
+		.bMaxPower = CONFIG_USB_MAX_POWER,
 	},
 };
 
+struct usb_string_desription {
+	struct usb_string_descriptor lang_descr;
+	struct usb_mfr_descriptor {
+		uint8_t bLength;
+		uint8_t bDescriptorType;
+		uint8_t bString[USB_BSTRING_LENGTH(
+				CONFIG_USB_DEVICE_MANUFACTURER)];
+	} __packed utf16le_mfr;
 
-void usb_fix_unicode_string(int idx_max, int asci_idx_max, u8_t *buf)
+	struct usb_product_descriptor {
+		uint8_t bLength;
+		uint8_t bDescriptorType;
+		uint8_t bString[USB_BSTRING_LENGTH(CONFIG_USB_DEVICE_PRODUCT)];
+	} __packed utf16le_product;
+
+	struct usb_sn_descriptor {
+		uint8_t bLength;
+		uint8_t bDescriptorType;
+		uint8_t bString[USB_BSTRING_LENGTH(CONFIG_USB_DEVICE_SN)];
+	} __packed utf16le_sn;
+} __packed;
+
+/*
+ * Language, Manufacturer, Product and Serial string descriptors,
+ * placed in the string section.
+ * FIXME: These should be sorted additionally.
+ */
+USBD_STRING_DESCR_DEFINE(primary) struct usb_string_desription string_descr = {
+	.lang_descr = {
+		.bLength = sizeof(struct usb_string_descriptor),
+		.bDescriptorType = USB_STRING_DESC,
+		.bString = sys_cpu_to_le16(0x0409),
+	},
+	/* Manufacturer String Descriptor */
+	.utf16le_mfr = {
+		.bLength = USB_STRING_DESCRIPTOR_LENGTH(
+				CONFIG_USB_DEVICE_MANUFACTURER),
+		.bDescriptorType = USB_STRING_DESC,
+		.bString = CONFIG_USB_DEVICE_MANUFACTURER,
+	},
+	/* Product String Descriptor */
+	.utf16le_product = {
+		.bLength = USB_STRING_DESCRIPTOR_LENGTH(
+				CONFIG_USB_DEVICE_PRODUCT),
+		.bDescriptorType = USB_STRING_DESC,
+		.bString = CONFIG_USB_DEVICE_PRODUCT,
+	},
+	/* Serial Number String Descriptor */
+	.utf16le_sn = {
+		.bLength = USB_STRING_DESCRIPTOR_LENGTH(CONFIG_USB_DEVICE_SN),
+		.bDescriptorType = USB_STRING_DESC,
+		.bString = CONFIG_USB_DEVICE_SN,
+	},
+};
+
+/* This element marks the end of the entire descriptor. */
+USBD_TERM_DESCR_DEFINE(primary) struct usb_desc_header term_descr = {
+	.bLength = 0,
+	.bDescriptorType = 0,
+};
+
+/*
+ * This function fixes bString by transforming the ASCII-7 string
+ * into a UTF16-LE during runtime.
+ */
+static void ascii7_to_utf16le(void *descriptor)
 {
+	struct usb_string_descriptor *str_descr = descriptor;
+	int idx_max = USB_BSTRING_UTF16LE_IDX_MAX(str_descr->bLength);
+	int ascii_idx_max = USB_BSTRING_ASCII_IDX_MAX(str_descr->bLength);
+	uint8_t *buf = (uint8_t *)&str_descr->bString;
+
+	LOG_DBG("idx_max %d, ascii_idx_max %d, buf %p",
+		idx_max, ascii_idx_max, buf);
+
 	for (int i = idx_max; i >= 0; i -= 2) {
-		SYS_LOG_DBG("char %c : %x, idx %d -> %d",
-			    buf[asci_idx_max],
-			    buf[asci_idx_max],
-			    asci_idx_max, i);
-		buf[i] = 0;
-		buf[i - 1] = buf[asci_idx_max--];
+		LOG_DBG("char %c : %x, idx %d -> %d",
+			buf[ascii_idx_max],
+			buf[ascii_idx_max],
+			ascii_idx_max, i);
+		__ASSERT(buf[ascii_idx_max] > 0x1F && buf[ascii_idx_max] < 0x7F,
+			 "Only printable ascii-7 characters are allowed in USB "
+			 "string descriptors");
+		buf[i] = 0U;
+		buf[i - 1] = buf[ascii_idx_max--];
 	}
 }
 
-u8_t *usb_get_device_descriptor(void)
+/*
+ * Look for the bString that has the address equal to the ptr and
+ * return its index. Use it to determine the index of the bString and
+ * assign it to the interfaces iInterface variable.
+ */
+int usb_get_str_descriptor_idx(void *ptr)
 {
-	usb_fix_unicode_string(MFR_UC_IDX_MAX, MFR_STRING_IDX_MAX,
-		(u8_t *)common_desc.string_descr.unicode_mfr.bString);
+	struct usb_desc_header *head = __usb_descriptor_start;
+	struct usb_string_descriptor *str = ptr;
+	int str_descr_idx = 0;
 
-	usb_fix_unicode_string(PRODUCT_UC_IDX_MAX, PRODUCT_STRING_IDX_MAX,
-		(u8_t *)common_desc.string_descr.unicode_product.bString);
+	while (head->bLength != 0U) {
+		switch (head->bDescriptorType) {
+		case USB_STRING_DESC:
+			if (head == (struct usb_desc_header *)str) {
+				return str_descr_idx;
+			}
 
-	usb_fix_unicode_string(SN_UC_IDX_MAX, SN_STRING_IDX_MAX,
-		(u8_t *)common_desc.string_descr.unicode_sn.bString);
+			str_descr_idx += 1;
+			break;
+		default:
+			break;
+		}
 
-#ifdef CONFIG_USB_DEVICE_NETWORK_ECM
-	usb_fix_unicode_string(ECM_MAC_UC_IDX_MAX, ECM_STRING_IDX_MAX,
-		(u8_t *)common_desc.string_descr.unicode_mac.bString);
-#endif
+		/* move to next descriptor */
+		head = (struct usb_desc_header *)((uint8_t *)head + head->bLength);
+	}
 
-	return (u8_t *) &common_desc;
+	return 0;
+}
+
+/*
+ * Validate endpoint address and Update the endpoint descriptors at runtime,
+ * the result depends on the capabilities of the driver and the number and
+ * type of endpoints.
+ * The default endpoint address is stored in endpoint descriptor and
+ * usb_ep_cfg_data, so both variables bEndpointAddress and ep_addr need
+ * to be updated.
+ */
+static int usb_validate_ep_cfg_data(struct usb_ep_descriptor * const ep_descr,
+				    struct usb_cfg_data * const cfg_data,
+				    uint32_t *requested_ep)
+{
+	for (unsigned int i = 0; i < cfg_data->num_endpoints; i++) {
+		struct usb_ep_cfg_data *ep_data = cfg_data->endpoint;
+
+		/*
+		 * Trying to find the right entry in the usb_ep_cfg_data.
+		 */
+		if (ep_descr->bEndpointAddress != ep_data[i].ep_addr) {
+			continue;
+		}
+
+		for (uint8_t idx = 1; idx < 16U; idx++) {
+			struct usb_dc_ep_cfg_data ep_cfg;
+
+			ep_cfg.ep_type = (ep_descr->bmAttributes &
+					  USB_EP_TRANSFER_TYPE_MASK);
+			ep_cfg.ep_mps = ep_descr->wMaxPacketSize;
+			ep_cfg.ep_addr = ep_descr->bEndpointAddress;
+			if (ep_cfg.ep_addr & USB_EP_DIR_IN) {
+				if ((*requested_ep & (1U << (idx + 16U)))) {
+					continue;
+				}
+
+				ep_cfg.ep_addr = (USB_EP_DIR_IN | idx);
+			} else {
+				if ((*requested_ep & (1U << (idx)))) {
+					continue;
+				}
+
+				ep_cfg.ep_addr = idx;
+			}
+			if (!usb_dc_ep_check_cap(&ep_cfg)) {
+				LOG_DBG("Fixing EP address %x -> %x",
+					ep_descr->bEndpointAddress,
+					ep_cfg.ep_addr);
+				ep_descr->bEndpointAddress = ep_cfg.ep_addr;
+				ep_data[i].ep_addr = ep_cfg.ep_addr;
+				if (ep_cfg.ep_addr & USB_EP_DIR_IN) {
+					*requested_ep |= (1U << (idx + 16U));
+				} else {
+					*requested_ep |= (1U << idx);
+				}
+				LOG_DBG("endpoint 0x%x", ep_data[i].ep_addr);
+				return 0;
+			}
+		}
+	}
+	return -1;
+}
+
+/*
+ * The interface descriptor of a USB function must be assigned to the
+ * usb_cfg_data so that usb_ep_cfg_data and matching endpoint descriptor
+ * can be found.
+ */
+static struct usb_cfg_data *usb_get_cfg_data(struct usb_if_descriptor *iface)
+{
+	size_t length = (__usb_data_end - __usb_data_start);
+
+	for (size_t i = 0; i < length; i++) {
+		if (__usb_data_start[i].interface_descriptor == iface) {
+			return &__usb_data_start[i];
+		}
+	}
+
+	return NULL;
+}
+
+/*
+ * Default USB Serial Number string descriptor will be derived from
+ * Hardware Information Driver (HWINFO). User can implement own variant
+ * of this function. Please note that the length of the new Serial Number
+ * descriptor may not exceed the length of the CONFIG_USB_DEVICE_SN.
+ */
+__weak uint8_t *usb_update_sn_string_descriptor(void)
+{
+	uint8_t hwid[sizeof(CONFIG_USB_DEVICE_SN) / 2];
+	static uint8_t sn[sizeof(CONFIG_USB_DEVICE_SN) + 1];
+	const char hex[] = "0123456789ABCDEF";
+
+	memset(hwid, 0, sizeof(hwid));
+	memset(sn, 0, sizeof(sn));
+
+	if (hwinfo_get_device_id(hwid, sizeof(hwid)) > 0) {
+		LOG_HEXDUMP_DBG(hwid, sizeof(hwid), "Serial Number");
+		for (int i = 0; i < sizeof(hwid); i++) {
+			sn[i * 2] = hex[hwid[i] >> 4];
+			sn[i * 2 + 1] = hex[hwid[i] & 0xF];
+		}
+	}
+
+	return sn;
+}
+
+static void usb_fix_ascii_sn_string_descriptor(struct usb_sn_descriptor *sn)
+{
+	uint8_t *runtime_sn =  usb_update_sn_string_descriptor();
+	int runtime_sn_len, default_sn_len;
+
+	if (!runtime_sn) {
+		return;
+	}
+
+	runtime_sn_len = strlen(runtime_sn);
+	if (!runtime_sn_len) {
+		return;
+	}
+
+	default_sn_len = strlen(CONFIG_USB_DEVICE_SN);
+
+	if (runtime_sn_len != default_sn_len) {
+		LOG_ERR("the new SN descriptor doesn't have the same "
+			"length as CONFIG_USB_DEVICE_SN");
+		return;
+	}
+
+	memcpy(sn->bString, runtime_sn, runtime_sn_len);
+}
+
+/*
+ * The entire descriptor, placed in the .usb.descriptor section,
+ * needs to be fixed before use. Currently, only the length of the
+ * entire device configuration (with all interfaces and endpoints)
+ * and the string descriptors will be corrected.
+ *
+ * Restrictions:
+ * - just one device configuration (there is only one)
+ * - string descriptor must be present
+ */
+static int usb_fix_descriptor(struct usb_desc_header *head)
+{
+	struct usb_cfg_descriptor *cfg_descr = NULL;
+	struct usb_if_descriptor *if_descr = NULL;
+	struct usb_cfg_data *cfg_data = NULL;
+	struct usb_ep_descriptor *ep_descr = NULL;
+	uint8_t numof_ifaces = 0U;
+	uint8_t str_descr_idx = 0U;
+	uint32_t requested_ep = BIT(16) | BIT(0);
+
+	while (head->bLength != 0U) {
+		switch (head->bDescriptorType) {
+		case USB_CONFIGURATION_DESC:
+			cfg_descr = (struct usb_cfg_descriptor *)head;
+			LOG_DBG("Configuration descriptor %p", head);
+			break;
+		case USB_ASSOCIATION_DESC:
+			LOG_DBG("Association descriptor %p", head);
+			break;
+		case USB_INTERFACE_DESC:
+			if_descr = (struct usb_if_descriptor *)head;
+			LOG_DBG("Interface descriptor %p", head);
+			if (if_descr->bAlternateSetting) {
+				LOG_DBG("Skip alternate interface");
+				break;
+			}
+
+			if (if_descr->bInterfaceNumber == 0U) {
+				cfg_data = usb_get_cfg_data(if_descr);
+				if (!cfg_data) {
+					LOG_ERR("There is no usb_cfg_data "
+						"for %p", head);
+					return -1;
+				}
+
+				if (cfg_data->interface_config) {
+					cfg_data->interface_config(head,
+							numof_ifaces);
+				}
+			}
+
+			numof_ifaces++;
+			break;
+		case USB_ENDPOINT_DESC:
+			if (!cfg_data) {
+				LOG_ERR("Uninitialized usb_cfg_data pointer, "
+					"corrupted device descriptor?");
+				return -1;
+			}
+
+			LOG_DBG("Endpoint descriptor %p", head);
+			ep_descr = (struct usb_ep_descriptor *)head;
+			if (usb_validate_ep_cfg_data(ep_descr,
+						     cfg_data,
+						     &requested_ep)) {
+				LOG_ERR("Failed to validate endpoints");
+				return -1;
+			}
+
+			break;
+		case 0:
+		case USB_STRING_DESC:
+			/*
+			 * Copy runtime SN string descriptor first, if has
+			 */
+			if (str_descr_idx == USB_DESC_SERIAL_NUMBER_IDX) {
+				struct usb_sn_descriptor *sn =
+					(struct usb_sn_descriptor *)head;
+				usb_fix_ascii_sn_string_descriptor(sn);
+			}
+			/*
+			 * Skip language descriptor but correct
+			 * wTotalLength and bNumInterfaces once.
+			 */
+			if (str_descr_idx) {
+				ascii7_to_utf16le(head);
+			} else {
+				if (!cfg_descr) {
+					LOG_ERR("Incomplete device descriptor");
+					return -1;
+				}
+
+				LOG_DBG("Now the wTotalLength is %zd",
+					(uint8_t *)head - (uint8_t *)cfg_descr);
+				sys_put_le16((uint8_t *)head - (uint8_t *)cfg_descr,
+					     (uint8_t *)&cfg_descr->wTotalLength);
+				cfg_descr->bNumInterfaces = numof_ifaces;
+			}
+
+			str_descr_idx += 1U;
+
+			break;
+		default:
+			break;
+		}
+
+		/* Move to next descriptor */
+		head = (struct usb_desc_header *)((uint8_t *)head + head->bLength);
+	}
+
+	if ((head + 1) != __usb_descriptor_end) {
+		LOG_DBG("try to fix next descriptor at %p", head + 1);
+		return usb_fix_descriptor(head + 1);
+	}
+
+	return 0;
+}
+
+
+uint8_t *usb_get_device_descriptor(void)
+{
+	LOG_DBG("__usb_descriptor_start %p", __usb_descriptor_start);
+	LOG_DBG("__usb_descriptor_end %p", __usb_descriptor_end);
+
+	if (usb_fix_descriptor(__usb_descriptor_start)) {
+		LOG_ERR("Failed to fixup USB descriptor");
+		return NULL;
+	}
+
+	return (uint8_t *) __usb_descriptor_start;
+}
+
+struct usb_dev_data *usb_get_dev_data_by_cfg(sys_slist_t *list,
+					     struct usb_cfg_data *cfg)
+{
+	struct usb_dev_data *dev_data;
+
+	SYS_SLIST_FOR_EACH_CONTAINER(list, dev_data, node) {
+		const struct device *dev = dev_data->dev;
+		const struct usb_cfg_data *cfg_cur = dev->config;
+
+		if (cfg_cur == cfg) {
+			return dev_data;
+		}
+	}
+
+	LOG_DBG("Device data not found for cfg %p", cfg);
+
+	return NULL;
+}
+
+struct usb_dev_data *usb_get_dev_data_by_iface(sys_slist_t *list,
+					       uint8_t iface_num)
+{
+	struct usb_dev_data *dev_data;
+
+	SYS_SLIST_FOR_EACH_CONTAINER(list, dev_data, node) {
+		const struct device *dev = dev_data->dev;
+		const struct usb_cfg_data *cfg = dev->config;
+		const struct usb_if_descriptor *if_desc =
+						cfg->interface_descriptor;
+
+		if (if_desc->bInterfaceNumber == iface_num) {
+			return dev_data;
+		}
+	}
+
+	LOG_DBG("Device data not found for iface number %u", iface_num);
+
+	return NULL;
+}
+
+struct usb_dev_data *usb_get_dev_data_by_ep(sys_slist_t *list, uint8_t ep)
+{
+	struct usb_dev_data *dev_data;
+
+	SYS_SLIST_FOR_EACH_CONTAINER(list, dev_data, node) {
+		const struct device *dev = dev_data->dev;
+		const struct usb_cfg_data *cfg = dev->config;
+		const struct usb_ep_cfg_data *ep_data = cfg->endpoint;
+
+		for (uint8_t i = 0; i < cfg->num_endpoints; i++) {
+			if (ep_data[i].ep_addr == ep) {
+				return dev_data;
+			}
+		}
+	}
+
+	LOG_DBG("Device data not found for ep %u", ep);
+
+	return NULL;
 }

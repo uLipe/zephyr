@@ -1,8 +1,8 @@
 /** @file
  * @brief Advance Audio Distribution Profile - SBC Codec header.
  */
-
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015-2016 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,8 +17,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef __BT_A2DP_SBC_H
-#define __BT_A2DP_SBC_H
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_A2DP_CODEC_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_A2DP_CODEC_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,15 +59,15 @@ extern "C" {
 /** @brief SBC Codec */
 struct bt_a2dp_codec_sbc_params {
 	/** First two octets of configuration */
-	u8_t config[2];
+	uint8_t config[2];
 	/** Minimum Bitpool Value */
-	u8_t min_bitpool;
+	uint8_t min_bitpool;
 	/** Maximum Bitpool Value */
-	u8_t max_bitpool;
+	uint8_t max_bitpool;
 } __packed;
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __BT_A2DP_SBC_H */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_A2DP_CODEC_H_ */

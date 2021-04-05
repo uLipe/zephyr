@@ -17,44 +17,26 @@
  * symbols" in the offsets.o module.
  */
 
-#ifndef _kernel_arch_func__h_
-#define _kernel_arch_func__h_
+#ifndef ZEPHYR_ARCH_ARC_INCLUDE_KERNEL_ARCH_FUNC_H_
+#define ZEPHYR_ARCH_ARC_INCLUDE_KERNEL_ARCH_FUNC_H_
+
+#if !defined(_ASMLANGUAGE)
+
+#include <kernel_arch_data.h>
+
+#ifdef CONFIG_ISA_ARCV2
+#include <v2/irq.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#if !defined(_ASMLANGUAGE)
-
-#ifdef CONFIG_CPU_ARCV2
-#include <v2/cache.h>
-#include <v2/irq.h>
-#endif
-
-static ALWAYS_INLINE void kernel_arch_init(void)
+static ALWAYS_INLINE void arch_kernel_init(void)
 {
-	_irq_setup();
+	z_irq_setup();
 }
 
-static ALWAYS_INLINE void
-_set_thread_return_value(struct k_thread *thread, unsigned int value)
-{
-	thread->arch.return_value = value;
-}
-
-static ALWAYS_INLINE int _is_in_isr(void)
-{
-	u32_t act = _arc_v2_aux_reg_read(_ARC_V2_AUX_IRQ_ACT);
-#if CONFIG_IRQ_OFFLOAD
-	/* Check if we're in a TRAP_S exception as well */
-	if (_arc_v2_aux_reg_read(_ARC_V2_STATUS32) & _ARC_V2_STATUS32_AE &&
-	    _ARC_V2_ECR_VECTOR(_arc_v2_aux_reg_read(_ARC_V2_ECR)) == EXC_EV_TRAP
-	   ) {
-		return 1;
-	}
-#endif
-	return ((act & 0xffff) != 0);
-}
 
 /**
  *
@@ -63,25 +45,40 @@ static ALWAYS_INLINE int _is_in_isr(void)
  *
  * @return IRQ number
  */
-static ALWAYS_INLINE int _INTERRUPT_CAUSE(void)
+static ALWAYS_INLINE int Z_INTERRUPT_CAUSE(void)
 {
-	u32_t irq_num = _arc_v2_aux_reg_read(_ARC_V2_ICAUSE);
+	uint32_t irq_num = z_arc_v2_aux_reg_read(_ARC_V2_ICAUSE);
 
 	return irq_num;
 }
 
-
-extern void _thread_entry_wrapper(void);
-
-static inline void _IntLibInit(void)
+static inline bool arch_is_in_isr(void)
 {
-	/* nothing needed, here because the kernel requires it */
+	return z_arc_v2_irq_unit_is_in_isr();
 }
 
-#endif /* _ASMLANGUAGE */
+extern void z_thread_entry_wrapper(void);
+extern void z_user_thread_entry_wrapper(void);
+
+extern void z_arc_userspace_enter(k_thread_entry_t user_entry, void *p1,
+		 void *p2, void *p3, uint32_t stack, uint32_t size,
+		 struct k_thread *thread);
+
+extern void z_arc_fatal_error(unsigned int reason, const z_arch_esf_t *esf);
+
+extern void arch_sched_ipi(void);
+
+extern void z_arc_switch(void *switch_to, void **switched_from);
+
+static inline void arch_switch(void *switch_to, void **switched_from)
+{
+	z_arc_switch(switch_to, switched_from);
+}
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _kernel_arch_func__h_ */
+#endif /* _ASMLANGUAGE */
+
+#endif /* ZEPHYR_ARCH_ARC_INCLUDE_KERNEL_ARCH_FUNC_H_ */

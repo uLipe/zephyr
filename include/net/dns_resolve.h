@@ -10,8 +10,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _DNS_RESOLVE_H
-#define _DNS_RESOLVE_H
+#ifndef ZEPHYR_INCLUDE_NET_DNS_RESOLVE_H_
+#define ZEPHYR_INCLUDE_NET_DNS_RESOLVE_H_
 
 #include <net/net_ip.h>
 #include <net/net_context.h>
@@ -31,13 +31,18 @@ extern "C" {
  * DNS query type enum
  */
 enum dns_query_type {
-	DNS_QUERY_TYPE_A = 1,	 /* IPv4 */
-	DNS_QUERY_TYPE_AAAA = 28 /* IPv6 */
+	/** IPv4 query */
+	DNS_QUERY_TYPE_A = 1,
+	/** IPv6 query */
+	DNS_QUERY_TYPE_AAAA = 28
 };
 
+/** Max size of the resolved name. */
 #ifndef DNS_MAX_NAME_SIZE
 #define DNS_MAX_NAME_SIZE 20
 #endif
+
+/** @cond INTERNAL_HIDDEN */
 
 /* Make sure that we can compile things even if CONFIG_DNS_RESOLVER
  * is not enabled.
@@ -62,13 +67,30 @@ enum dns_query_type {
 #define MDNS_SERVER_COUNT 0
 #endif /* CONFIG_MDNS_RESOLVER */
 
+/* If LLMNR is enabled, then add some extra well known multicast servers to the
+ * server list.
+ */
+#if defined(CONFIG_LLMNR_RESOLVER)
+#if defined(CONFIG_NET_IPV6) && defined(CONFIG_NET_IPV4)
+#define LLMNR_SERVER_COUNT 2
+#else
+#define LLMNR_SERVER_COUNT 1
+#endif /* CONFIG_NET_IPV6 && CONFIG_NET_IPV4 */
+#else
+#define LLMNR_SERVER_COUNT 0
+#endif /* CONFIG_MDNS_RESOLVER */
+
+#define DNS_MAX_MCAST_SERVERS (MDNS_SERVER_COUNT + LLMNR_SERVER_COUNT)
+
+/** @endcond */
+
 /**
  * Address info struct is passed to callback that gets all the results.
  */
 struct dns_addrinfo {
 	struct sockaddr ai_addr;
 	socklen_t       ai_addrlen;
-	u8_t            ai_family;
+	uint8_t            ai_family;
 	char            ai_canonname[DNS_MAX_NAME_SIZE + 1];
 };
 
@@ -76,23 +98,40 @@ struct dns_addrinfo {
  * Status values for the callback.
  */
 enum dns_resolve_status {
-	DNS_EAI_BADFLAGS    = -1,   /* Invalid value for `ai_flags' field */
-	DNS_EAI_NONAME      = -2,   /* NAME or SERVICE is unknown */
-	DNS_EAI_AGAIN       = -3,   /* Temporary failure in name resolution */
-	DNS_EAI_FAIL        = -4,   /* Non-recoverable failure in name res */
-	DNS_EAI_NODATA      = -5,   /* No address associated with NAME */
-	DNS_EAI_FAMILY      = -6,   /* `ai_family' not supported */
-	DNS_EAI_SOCKTYPE    = -7,   /* `ai_socktype' not supported */
-	DNS_EAI_SERVICE     = -8,   /* SRV not supported for `ai_socktype' */
-	DNS_EAI_ADDRFAMILY  = -9,   /* Address family for NAME not supported */
-	DNS_EAI_MEMORY      = -10,  /* Memory allocation failure */
-	DNS_EAI_SYSTEM      = -11,  /* System error returned in `errno' */
-	DNS_EAI_OVERFLOW    = -12,  /* Argument buffer overflow */
-	DNS_EAI_INPROGRESS  = -100, /* Processing request in progress */
-	DNS_EAI_CANCELED    = -101, /* Request canceled */
-	DNS_EAI_NOTCANCELED = -102, /* Request not canceled */
-	DNS_EAI_ALLDONE     = -103, /* All requests done */
-	DNS_EAI_IDN_ENCODE  = -105, /* IDN encoding failed */
+	/** Invalid value for `ai_flags' field */
+	DNS_EAI_BADFLAGS    = -1,
+	/** NAME or SERVICE is unknown */
+	DNS_EAI_NONAME      = -2,
+	/** Temporary failure in name resolution */
+	DNS_EAI_AGAIN       = -3,
+	/** Non-recoverable failure in name res */
+	DNS_EAI_FAIL        = -4,
+	/** No address associated with NAME */
+	DNS_EAI_NODATA      = -5,
+	/** `ai_family' not supported */
+	DNS_EAI_FAMILY      = -6,
+	/** `ai_socktype' not supported */
+	DNS_EAI_SOCKTYPE    = -7,
+	/** SRV not supported for `ai_socktype' */
+	DNS_EAI_SERVICE     = -8,
+	/** Address family for NAME not supported */
+	DNS_EAI_ADDRFAMILY  = -9,
+	/** Memory allocation failure */
+	DNS_EAI_MEMORY      = -10,
+	/** System error returned in `errno' */
+	DNS_EAI_SYSTEM      = -11,
+	/** Argument buffer overflow */
+	DNS_EAI_OVERFLOW    = -12,
+	/** Processing request in progress */
+	DNS_EAI_INPROGRESS  = -100,
+	/** Request canceled */
+	DNS_EAI_CANCELED    = -101,
+	/** Request not canceled */
+	DNS_EAI_NOTCANCELED = -102,
+	/** All requests done */
+	DNS_EAI_ALLDONE     = -103,
+	/** IDN encoding failed */
+	DNS_EAI_IDN_ENCODE  = -105,
 };
 
 /**
@@ -130,34 +169,55 @@ struct dns_resolve_context {
 		struct net_context *net_ctx;
 
 		/** Is this server mDNS one */
-		bool is_mdns;
-	} servers[CONFIG_DNS_RESOLVER_MAX_SERVERS + MDNS_SERVER_COUNT];
+		uint8_t is_mdns : 1;
+
+		/** Is this server LLMNR one */
+		uint8_t is_llmnr : 1;
+	} servers[CONFIG_DNS_RESOLVER_MAX_SERVERS + DNS_MAX_MCAST_SERVERS];
+
+	/** Prevent concurrent access */
+	struct k_mutex lock;
 
 	/** This timeout is also used when a buffer is required from the
 	 * buffer pools.
 	 */
-	s32_t buf_timeout;
+	k_timeout_t buf_timeout;
 
 	/** Result callbacks. We have multiple callbacks here so that it is
 	 * possible to do multiple queries at the same time.
+	 *
+	 * Contents of this structure can be inspected and changed only when
+	 * the lock is held.
 	 */
 	struct dns_pending_query {
 		/** Timeout timer */
-		struct k_delayed_work timer;
+		struct k_work_delayable timer;
 
 		/** Back pointer to ctx, needed in timeout handler */
 		struct dns_resolve_context *ctx;
 
-		/** Result callback */
+		/** Result callback.
+		 *
+		 * A null value indicates the slot is not in use.
+		 */
 		dns_resolve_cb_t cb;
 
 		/** User data */
 		void *user_data;
 
 		/** TX timeout */
-		s32_t timeout;
+		k_timeout_t timeout;
 
 		/** String containing the thing to resolve like www.example.com
+		 *
+		 * This is set to a non-null value when the query is started,
+		 * and is not used thereafter.
+		 *
+		 * If the query completed at a point where the work item was
+		 * still pending the pointer is cleared to indicate that the
+		 * query is complete, but release of the query slot will be
+		 * deferred until a request for a slot determines that the
+		 * work item has been released.
 		 */
 		const char *query;
 
@@ -165,7 +225,15 @@ struct dns_resolve_context {
 		enum dns_query_type query_type;
 
 		/** DNS id of this query */
-		u16_t id;
+		uint16_t id;
+
+		/** Hash of the DNS name + query type we are querying.
+		 * This hash is calculated so we can match the response that
+		 * we are receiving. This is needed mainly for mDNS which is
+		 * setting the DNS id to 0, which means that the id alone
+		 * cannot be used to find correct pending query.
+		 */
+		uint16_t query_hash;
 	} queries[CONFIG_DNS_NUM_CONCUR_QUERIES];
 
 	/** Is this context in use */
@@ -176,7 +244,8 @@ struct dns_resolve_context {
  * @brief Init DNS resolving context.
  *
  * @details This function sets the DNS server address and initializes the
- * DNS context that is used by the actual resolver.
+ * DNS context that is used by the actual resolver. DNS server addresses
+ * can be specified either in textual form, or as struct sockaddr (or both).
  * Note that the recommended way to resolve DNS names is to use
  * the dns_get_addr_info() API. In that case user does not need to
  * call dns_resolve_init() as the DNS servers are already setup by the system.
@@ -185,18 +254,22 @@ struct dns_resolve_context {
  * the stack, then the variable needs to be valid for the whole duration of
  * the resolving. Caller does not need to fill the variable beforehand or
  * edit the context afterwards.
- * @param dns_servers DNS server addresses. The array is null terminated.
- * The port number can be given in the string.
+ * @param dns_servers_str DNS server addresses using textual strings. The
+ * array is NULL terminated. The port number can be given in the string.
  * Syntax for the server addresses with or without port numbers:
  *    IPv4        : 10.0.9.1
  *    IPv4 + port : 10.0.9.1:5353
  *    IPv6        : 2001:db8::22:42
  *    IPv6 + port : [2001:db8::22:42]:5353
+ * @param dns_servers_sa DNS server addresses as struct sockaddr. The array
+ * is NULL terminated. Port numbers are optional in struct sockaddr, the
+ * default will be used if set to 0.
  *
  * @return 0 if ok, <0 if error.
  */
 int dns_resolve_init(struct dns_resolve_context *ctx,
-		     const char *dns_servers[]);
+		     const char *dns_servers_str[],
+		     const struct sockaddr *dns_servers_sa[]);
 
 /**
  * @brief Close DNS resolving context.
@@ -221,7 +294,24 @@ int dns_resolve_close(struct dns_resolve_context *ctx);
  * @return 0 if ok, <0 if error.
  */
 int dns_resolve_cancel(struct dns_resolve_context *ctx,
-		       u16_t dns_id);
+		       uint16_t dns_id);
+
+/**
+ * @brief Cancel a pending DNS query using id, name and type.
+ *
+ * @details This releases DNS resources used by a pending query.
+ *
+ * @param ctx DNS context
+ * @param dns_id DNS id of the pending query
+ * @param query_name Name of the resource we are trying to query (hostname)
+ * @param query_type Type of the query (A or AAAA)
+ *
+ * @return 0 if ok, <0 if error.
+ */
+int dns_resolve_cancel_with_name(struct dns_resolve_context *ctx,
+				 uint16_t dns_id,
+				 const char *query_name,
+				 enum dns_query_type query_type);
 
 /**
  * @brief Resolve DNS name.
@@ -244,8 +334,8 @@ int dns_resolve_cancel(struct dns_resolve_context *ctx,
  * has happened.
  * @param user_data The user data.
  * @param timeout The timeout value for the query. Possible values:
- * K_FOREVER: the query is tried forever, user needs to cancel it manually
- *            if it takes too long time to finish
+ * SYS_FOREVER_MS: the query is tried forever, user needs to cancel it
+ *            manually if it takes too long time to finish
  * >0: start the query and let the system timeout it after specified ms
  *
  * @return 0 if resolving was started ok, < 0 otherwise
@@ -253,10 +343,10 @@ int dns_resolve_cancel(struct dns_resolve_context *ctx,
 int dns_resolve_name(struct dns_resolve_context *ctx,
 		     const char *query,
 		     enum dns_query_type type,
-		     u16_t *dns_id,
+		     uint16_t *dns_id,
 		     dns_resolve_cb_t cb,
 		     void *user_data,
-		     s32_t timeout);
+		     int32_t timeout);
 
 /**
  * @brief Get default DNS context.
@@ -291,18 +381,18 @@ struct dns_resolve_context *dns_resolve_get_default(void);
  * has happened.
  * @param user_data The user data.
  * @param timeout The timeout value for the connection. Possible values:
- * K_FOREVER: the query is tried forever, user needs to cancel it manually
- *            if it takes too long time to finish
+ * SYS_FOREVER_MS: the query is tried forever, user needs to cancel it
+ *            manually if it takes too long time to finish
  * >0: start the query and let the system timeout it after specified ms
  *
  * @return 0 if resolving was started ok, < 0 otherwise
  */
 static inline int dns_get_addr_info(const char *query,
 				    enum dns_query_type type,
-				    u16_t *dns_id,
+				    uint16_t *dns_id,
 				    dns_resolve_cb_t cb,
 				    void *user_data,
-				    s32_t timeout)
+				    int32_t timeout)
 {
 	return dns_resolve_name(dns_resolve_get_default(),
 				query,
@@ -322,7 +412,7 @@ static inline int dns_get_addr_info(const char *query,
  *
  * @return 0 if ok, <0 if error.
  */
-static inline int dns_cancel_addr_info(u16_t dns_id)
+static inline int dns_cancel_addr_info(uint16_t dns_id)
 {
 	return dns_resolve_cancel(dns_resolve_get_default(), dns_id);
 }
@@ -331,18 +421,22 @@ static inline int dns_cancel_addr_info(u16_t dns_id)
  * @}
  */
 
-#if defined(CONFIG_DNS_RESOLVER)
+/** @cond INTERNAL_HIDDEN */
+
 /**
  * @brief Initialize DNS subsystem.
  */
+#if defined(CONFIG_DNS_RESOLVER)
 void dns_init_resolver(void);
 
 #else
 #define dns_init_resolver(...)
 #endif /* CONFIG_DNS_RESOLVER */
 
+/** @endcond */
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _DNS_RESOLVE_H */
+#endif /* ZEPHYR_INCLUDE_NET_DNS_RESOLVE_H_ */

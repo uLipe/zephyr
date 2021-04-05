@@ -1,787 +1,259 @@
 /*
- * Copyright (c) 2013-2015 Wind River Systems, Inc.
+ * Copyright (c) 2018 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
-/**
- * @file
- * @brief ARM Cortex-M systick device driver
- *
- * This module implements the kernel's CORTEX-M ARM's systick device driver.
- * It provides the standard kernel "system clock driver" interfaces.
- *
- * The driver utilizes systick to provide kernel ticks.
- *
- * \INTERNAL IMPLEMENTATION DETAILS
- * The systick device provides a 24-bit clear-on-write, decrementing,
- * wrap-on-zero counter. Only edge sensitive triggered interrupt is supported.
- *
- */
-
-#include <kernel.h>
-#include <toolchain.h>
-#include <linker/sections.h>
-#include <misc/__assert.h>
+#include <drivers/timer/system_timer.h>
 #include <sys_clock.h>
-#include <drivers/system_timer.h>
-#include <arch/arm/cortex_m/cmsis.h>
-#include <kernel_structs.h>
+#include <spinlock.h>
+#include <arch/arm/aarch32/cortex_m/cmsis.h>
 
-/* running total of timer count */
-static volatile u32_t clock_accumulated_count;
+#define COUNTER_MAX 0x00ffffff
+#define TIMER_STOPPED 0xff000000
+
+#define CYC_PER_TICK (sys_clock_hw_cycles_per_sec()	\
+		      / CONFIG_SYS_CLOCK_TICKS_PER_SEC)
+#define MAX_TICKS ((COUNTER_MAX / CYC_PER_TICK) - 1)
+#define MAX_CYCLES (MAX_TICKS * CYC_PER_TICK)
+
+/* Minimum cycles in the future to try to program.  Note that this is
+ * NOT simply "enough cycles to get the counter read and reprogrammed
+ * reliably" -- it becomes the minimum value of the LOAD register, and
+ * thus reflects how much time we can reliably see expire between
+ * calls to elapsed() to read the COUNTFLAG bit.  So it needs to be
+ * set to be larger than the maximum time the interrupt might be
+ * masked.  Choosing a fraction of a tick is probably a good enough
+ * default, with an absolute minimum of 1k cyc.
+ */
+#define MIN_DELAY MAX(1024, (CYC_PER_TICK/16))
+
+#define TICKLESS (IS_ENABLED(CONFIG_TICKLESS_KERNEL))
+
+static struct k_spinlock lock;
+
+static uint32_t last_load;
 
 /*
- * A board support package's board.h header must provide definitions for the
- * following constants:
+ * This local variable holds the amount of SysTick HW cycles elapsed
+ * and it is updated in sys_clock_isr() and sys_clock_set_timeout().
  *
- *    CONFIG_SYSTICK_CLOCK_FREQ
+ * Note:
+ *  At an arbitrary point in time the "current" value of the SysTick
+ *  HW timer is calculated as:
  *
- * This is the sysTick input clock frequency.
+ * t = cycle_counter + elapsed();
  */
+static uint32_t cycle_count;
 
-#include <board.h>
-
-#ifdef CONFIG_TICKLESS_IDLE
-#define TIMER_MODE_PERIODIC 0 /* normal running mode */
-#define TIMER_MODE_ONE_SHOT 1 /* emulated, since sysTick has 1 mode */
-
-#define IDLE_NOT_TICKLESS 0 /* non-tickless idle mode */
-#define IDLE_TICKLESS 1     /* tickless idle  mode */
-#endif			    /* CONFIG_TICKLESS_IDLE */
-
-extern void _ExcExit(void);
-#ifdef CONFIG_SYS_POWER_MANAGEMENT
-extern s32_t _NanoIdleValGet(void);
-extern void _NanoIdleValClear(void);
-extern void _sys_power_save_idle_exit(s32_t ticks);
-#endif
-
-#ifdef CONFIG_TICKLESS_IDLE
-extern s32_t _sys_idle_elapsed_ticks;
-#endif
-
-#ifdef CONFIG_TICKLESS_IDLE
-static u32_t __noinit default_load_value; /* default count */
-#ifndef CONFIG_TICKLESS_KERNEL
-static u32_t idle_original_count;
-#endif
-#ifdef CONFIG_TICKLESS_KERNEL
-static u32_t timer_overflow;
-#endif
-static u32_t __noinit max_system_ticks;
-static u32_t idle_original_ticks;
-static u32_t __noinit max_load_value;
-static u32_t __noinit timer_idle_skew;
-static unsigned char timer_mode = TIMER_MODE_PERIODIC;
-static unsigned char idle_mode = IDLE_NOT_TICKLESS;
-#endif /* CONFIG_TICKLESS_IDLE */
-
-#if defined(CONFIG_TICKLESS_IDLE) || \
-	defined(CONFIG_SYSTEM_CLOCK_DISABLE)
-
-/**
- *
- * @brief Stop the timer
- *
- * This routine disables the systick counter.
- *
- * @return N/A
+/*
+ * This local variable holds the amount of elapsed SysTick HW cycles
+ * that have been announced to the kernel.
  */
-static ALWAYS_INLINE void sysTickStop(void)
-{
-	u32_t reg;
+static uint32_t announced_cycles;
 
-	/*
-	 * Disable the counter and its interrupt while preserving the
-	 * remaining bits.
-	 */
-	reg = SysTick->CTRL;
-	reg &= ~(SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk);
-	SysTick->CTRL = reg;
-}
-
-#endif /* CONFIG_TICKLESS_IDLE || CONFIG_SYSTEM_CLOCK_DISABLE */
-
-#ifdef CONFIG_TICKLESS_IDLE
-
-/**
+/*
+ * This local variable holds the amount of elapsed HW cycles due to
+ * SysTick timer wraps ('overflows') and is used in the calculation
+ * in elapsed() function, as well as in the updates to cycle_count.
  *
- * @brief Start the timer
- *
- * This routine enables the systick counter.
- *
- * @return N/A
+ * Note:
+ * Each time cycle_count is updated with the value from overflow_cyc,
+ * the overflow_cyc must be reset to zero.
  */
-static ALWAYS_INLINE void sysTickStart(void)
-{
-	u32_t reg;
+static volatile uint32_t overflow_cyc;
 
-	/*
-	 * Enable the counter, its interrupt and set the clock source to be
-	 * the system clock while preserving the remaining bits.
-	 */
-	reg = SysTick->CTRL; /* countflag is cleared by this read */
-
-	reg |= SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk |
-	       SysTick_CTRL_CLKSOURCE_Msk;
-	SysTick->CTRL = reg;
-}
-
-/**
+/* This internal function calculates the amount of HW cycles that have
+ * elapsed since the last time the absolute HW cycles counter has been
+ * updated. 'cycle_count' may be updated either by the ISR, or when we
+ * re-program the SysTick.LOAD register, in sys_clock_set_timeout().
  *
- * @brief Get the current counter value
+ * Additionally, the function updates the 'overflow_cyc' counter, that
+ * holds the amount of elapsed HW cycles due to (possibly) multiple
+ * timer wraps (overflows).
  *
- * This routine gets the value from the timer's current value register.  This
- * value is the 'time' remaining to decrement before the timer triggers an
- * interrupt.
- *
- * @return the current counter value
+ * Prerequisites:
+ * - reprogramming of SysTick.LOAD must be clearing the SysTick.COUNTER
+ *   register and the 'overflow_cyc' counter.
+ * - ISR must be clearing the 'overflow_cyc' counter.
+ * - no more than one counter-wrap has occurred between
+ *     - the timer reset or the last time the function was called
+ *     - and until the current call of the function is completed.
+ * - the function is invoked with interrupts disabled.
  */
-static ALWAYS_INLINE u32_t sysTickCurrentGet(void)
+static uint32_t elapsed(void)
 {
-#ifdef CONFIG_TICKLESS_KERNEL
-	/*
-	 * Counter can rollover if irqs are locked for too long.
-	 * Return 0 to indicate programmed cycles have expired.
-	 */
-	if ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) || (timer_overflow)) {
-		timer_overflow = 1;
-		return 0;
-	}
-#endif
-	return SysTick->VAL;
-}
+	uint32_t val1 = SysTick->VAL;	/* A */
+	uint32_t ctrl = SysTick->CTRL;	/* B */
+	uint32_t val2 = SysTick->VAL;	/* C */
 
-#ifdef CONFIG_TICKLESS_KERNEL
-static ALWAYS_INLINE void sys_tick_reload(void)
-{
-	/* Triggers immediate reload of count when clock is already running */
-	SysTick->VAL = 0;
-}
-#endif
-
-/**
- *
- * @brief Get the reload/countdown value
- *
- * This routine returns the value from the reload value register.
- *
- * @return the counter's initial count/wraparound value
- */
-static ALWAYS_INLINE u32_t sysTickReloadGet(void)
-{
-	return SysTick->LOAD;
-}
-
-#endif /* CONFIG_TICKLESS_IDLE */
-
-/**
- *
- * @brief Set the reload/countdown value
- *
- * This routine sets value from which the timer will count down and also
- * sets the timer's current value register to zero.
- * Note that the value given is assumed to be valid (i.e., count < (1<<24)).
- *
- * @return N/A
- */
-static ALWAYS_INLINE void sysTickReloadSet(
-	u32_t count /* count from which timer is to count down */
-	)
-{
-	/*
-	 * Write the reload value and clear the current value in preparation
-	 * for enabling the timer.
-	 * The countflag in the control/status register is also cleared by
-	 * this operation.
-	 */
-	SysTick->LOAD = count;
-	SysTick->VAL = 0; /* also clears the countflag */
-}
-
-/**
- *
- * @brief System clock tick handler
- *
- * This routine handles the system clock tick interrupt. A TICK_EVENT event
- * is pushed onto the kernel stack.
- *
- * The symbol for this routine is either _timer_int_handler.
- *
- * @return N/A
- */
-void _timer_int_handler(void *unused)
-{
-	ARG_UNUSED(unused);
-
-#ifdef CONFIG_EXECUTION_BENCHMARKING
-	extern void read_timer_start_of_tick_handler(void);
-	read_timer_start_of_tick_handler();
-#endif
-
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_INTERRUPT
-	extern void _sys_k_event_logger_interrupt(void);
-	_sys_k_event_logger_interrupt();
-#endif
-
-#ifdef CONFIG_SYS_POWER_MANAGEMENT
-	s32_t numIdleTicks;
-
-	/*
-	 * All interrupts are disabled when handling idle wakeup.
-	 * For tickless idle, this ensures that the calculation and programming
-	 * of
-	 * the device for the next timer deadline is not interrupted.
-	 * For non-tickless idle, this ensures that the clearing of the kernel
-	 * idle
-	 * state is not interrupted.
-	 * In each case, _sys_power_save_idle_exit is called with interrupts
-	 * disabled.
-	 */
-	__asm__(" cpsid i"); /* PRIMASK = 1 */
-
-#ifdef CONFIG_TICKLESS_IDLE
-#if defined(CONFIG_TICKLESS_KERNEL)
-	if (!idle_original_ticks) {
-		if (_sys_clock_always_on) {
-			_sys_clock_tick_count = _get_elapsed_clock_time();
-			/* clear overflow tracking flag as it is accounted */
-			timer_overflow = 0;
-			sysTickStop();
-			idle_original_ticks = max_system_ticks;
-			sysTickReloadSet(max_load_value);
-			sysTickStart();
-			sys_tick_reload();
-		}
-		__asm__(" cpsie i"); /* re-enable interrupts (PRIMASK = 0) */
-
-		_ExcExit();
-		return;
-	}
-
-	idle_mode = IDLE_NOT_TICKLESS;
-
-	_sys_idle_elapsed_ticks = idle_original_ticks;
-
-	/*
-	 * Clear programmed ticks before announcing elapsed time so
-	 * that recursive calls to _update_elapsed_time() will not
-	 * announce already consumed elapsed time
-	 */
-	idle_original_ticks = 0;
-
-	_sys_clock_tick_announce();
-
-	/* _sys_clock_tick_announce() could cause new programming */
-	if (!idle_original_ticks && _sys_clock_always_on) {
-		_sys_clock_tick_count = _get_elapsed_clock_time();
-		/* clear overflow tracking flag as it is accounted */
-		timer_overflow = 0;
-		sysTickStop();
-		sysTickReloadSet(max_load_value);
-		sysTickStart();
-		sys_tick_reload();
-	}
-#else
-	/*
-	 * If this a wakeup from a completed tickless idle or after
-	 *  _timer_idle_exit has processed a partial idle, return
-	 *  to the normal tick cycle.
-	 */
-	if (timer_mode == TIMER_MODE_ONE_SHOT) {
-		sysTickStop();
-		sysTickReloadSet(default_load_value);
-		sysTickStart();
-		timer_mode = TIMER_MODE_PERIODIC;
-	}
-
-	/* set the number of elapsed ticks and announce them to the kernel */
-
-	if (idle_mode == IDLE_TICKLESS) {
-		/* tickless idle completed without interruption */
-		idle_mode = IDLE_NOT_TICKLESS;
-		_sys_idle_elapsed_ticks =
-			idle_original_ticks + 1; /* actual # of idle ticks */
-		_sys_clock_tick_announce();
-	} else {
-		_sys_clock_final_tick_announce();
-	}
-
-	/* accumulate total counter value */
-	clock_accumulated_count += default_load_value * _sys_idle_elapsed_ticks;
-#endif
-#else  /* !CONFIG_TICKLESS_IDLE */
-	/*
-	 * No tickless idle:
-	 * Update the total tick count and announce this tick to the kernel.
-	 */
-	clock_accumulated_count += sys_clock_hw_cycles_per_tick;
-
-	_sys_clock_tick_announce();
-#endif /* CONFIG_TICKLESS_IDLE */
-
-	numIdleTicks = _NanoIdleValGet(); /* get # of idle ticks requested */
-
-	if (numIdleTicks) {
-		_NanoIdleValClear(); /* clear kernel idle setting */
-
-		/*
-		 * Complete idle processing.
-		 * Note that for tickless idle, nothing will be done in
-		 * _timer_idle_exit.
-		 */
-		_sys_power_save_idle_exit(numIdleTicks);
-	}
-
-	__asm__(" cpsie i"); /* re-enable interrupts (PRIMASK = 0) */
-
-#else /* !CONFIG_SYS_POWER_MANAGEMENT */
-
-	/* accumulate total counter value */
-	clock_accumulated_count += sys_clock_hw_cycles_per_tick;
-
-	/*
-	 * one more tick has occurred -- don't need to do anything special since
-	 * timer is already configured to interrupt on the following tick
-	 */
-	_sys_clock_tick_announce();
-
-#endif /* CONFIG_SYS_POWER_MANAGEMENT */
-
-#ifdef CONFIG_EXECUTION_BENCHMARKING
-	extern void read_timer_end_of_tick_handler(void);
-	read_timer_end_of_tick_handler();
-#endif
-
-	extern void _ExcExit(void);
-	_ExcExit();
-}
-
-#ifdef CONFIG_TICKLESS_KERNEL
-u32_t _get_program_time(void)
-{
-	return idle_original_ticks;
-}
-
-u32_t _get_remaining_program_time(void)
-{
-	if (idle_original_ticks == 0) {
-		return 0;
-	}
-
-	return (u32_t)ceiling_fraction((u32_t)sysTickCurrentGet(),
-						default_load_value);
-}
-
-u32_t _get_elapsed_program_time(void)
-{
-	if (idle_original_ticks == 0) {
-		return 0;
-	}
-
-	return idle_original_ticks - (sysTickCurrentGet() / default_load_value);
-}
-
-void _set_time(u32_t time)
-{
-	if (!time) {
-		idle_original_ticks = 0;
-		return;
-	}
-
-	idle_original_ticks = time > max_system_ticks ? max_system_ticks : time;
-
-	_sys_clock_tick_count = _get_elapsed_clock_time();
-
-	/* clear overflow tracking flag as it is accounted */
-	timer_overflow = 0;
-	sysTickStop();
-	sysTickReloadSet(idle_original_ticks * default_load_value);
-
-	sysTickStart();
-	sys_tick_reload();
-}
-
-void _enable_sys_clock(void)
-{
-	if (!(SysTick->CTRL & SysTick_CTRL_ENABLE_Msk)) {
-		sysTickStart();
-		sys_tick_reload();
-	}
-}
-
-static inline u64_t get_elapsed_count(void)
-{
-	u64_t elapsed;
-
-	if ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) || (timer_overflow)) {
-		elapsed = SysTick->LOAD;
-		/* Keep track of overflow till it is accounted in
-		 * _sys_clock_tick_count as COUNTFLAG bit is clear on read
-		 */
-		timer_overflow = 1;
-	} else {
-		elapsed = (SysTick->LOAD - SysTick->VAL);
-	}
-
-	elapsed += (_sys_clock_tick_count * default_load_value);
-
-	return elapsed;
-}
-
-u64_t _get_elapsed_clock_time(void)
-{
-	return get_elapsed_count() / default_load_value;
-}
-#endif
-
-#ifdef CONFIG_TICKLESS_IDLE
-
-/**
- *
- * @brief Initialize the tickless idle feature
- *
- * This routine initializes the tickless idle feature by calculating the
- * necessary hardware-specific parameters.
- *
- * Note that the maximum number of ticks that can elapse during a "tickless idle"
- * is limited by <default_load_value>.  The larger the value (the lower the
- * tick frequency), the fewer elapsed ticks during a "tickless idle".
- * Conversely, the smaller the value (the higher the tick frequency), the
- * more elapsed ticks during a "tickless idle".
- *
- * @return N/A
- */
-static void sysTickTicklessIdleInit(void)
-{
-	/* enable counter, disable interrupt and set clock src to system clock
-	 */
-	u32_t ctrl = SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_CLKSOURCE_Msk;
-
-	volatile u32_t dummy; /* used to help determine the 'skew time' */
-
-	/* store the default reload value (which has already been set) */
-	default_load_value = sysTickReloadGet();
-
-	/* calculate the max number of ticks with this 24-bit H/W counter */
-	max_system_ticks = 0x00ffffff / default_load_value;
-
-	/* determine the associated load value */
-	max_load_value = max_system_ticks * default_load_value;
-
-	/*
-	 * Calculate the skew from switching the timer in and out of idle mode.
-	 * The following sequence is emulated:
-	 *    1. Stop the timer.
-	 *    2. Read the current counter value.
-	 *    3. Calculate the new/remaining counter reload value.
-	 *    4. Load the new counter value.
-	 *    5. Set the timer mode to periodic/one-shot.
-	 *    6. Start the timer.
+	/* SysTick behavior: The counter wraps at zero automatically,
+	 * setting the COUNTFLAG field of the CTRL register when it
+	 * does.  Reading the control register automatically clears
+	 * that field.
 	 *
-	 * The timer must be running for this to work, so enable the
-	 * systick counter without generating interrupts, using the processor
-	 *clock.
-	 * Note that the reload value has already been set by the caller.
+	 * If the count wrapped...
+	 * 1) Before A then COUNTFLAG will be set and val1 >= val2
+	 * 2) Between A and B then COUNTFLAG will be set and val1 < val2
+	 * 3) Between B and C then COUNTFLAG will be clear and val1 < val2
+	 * 4) After C we'll see it next time
+	 *
+	 * So the count in val2 is post-wrap and last_load needs to be
+	 * added if and only if COUNTFLAG is set or val1 < val2.
 	 */
+	if ((ctrl & SysTick_CTRL_COUNTFLAG_Msk)
+	    || (val1 < val2)) {
+		overflow_cyc += last_load;
 
-	SysTick->CTRL |= ctrl;
-	__ISB();
-
-	timer_idle_skew = sysTickCurrentGet(); /* start of skew time */
-
-	SysTick->CTRL |= ctrl; /* normally sysTickStop() */
-
-	dummy = sysTickCurrentGet(); /* emulate sysTickReloadSet() */
-
-	/* emulate calculation of the new counter reload value */
-	if ((dummy == 1) || (dummy == default_load_value)) {
-		dummy = max_system_ticks - 1;
-		dummy += max_load_value - default_load_value;
-	} else {
-		dummy = dummy - 1;
-		dummy += dummy * default_load_value;
+		/* We know there was a wrap, but we might not have
+		 * seen it in CTRL, so clear it. */
+		(void)SysTick->CTRL;
 	}
 
-	/* _sysTickStart() without interrupts */
-	SysTick->CTRL |= ctrl;
-
-	timer_mode = TIMER_MODE_PERIODIC;
-
-	/* skew time calculation for down counter (assumes no rollover) */
-	timer_idle_skew -= sysTickCurrentGet();
-
-	/* restore the previous sysTick state */
-	sysTickStop();
-	sysTickReloadSet(default_load_value);
-#ifdef CONFIG_TICKLESS_KERNEL
-	idle_original_ticks = 0;
-#endif
+	return (last_load - val2) + overflow_cyc;
 }
 
-/**
- *
- * @brief Place the system timer into idle state
- *
- * Re-program the timer to enter into the idle state for the given number of
- * ticks. It is set to a "one shot" mode where it will fire in the number of
- * ticks supplied or the maximum number of ticks that can be programmed into
- * hardware. A value of -1 will result in the maximum number of ticks.
- *
- * @return N/A
- */
-void _timer_idle_enter(s32_t ticks /* system ticks */
-				)
+/* Callout out of platform assembly, not hooked via IRQ_CONNECT... */
+void sys_clock_isr(void *arg)
 {
-#ifdef CONFIG_TICKLESS_KERNEL
-	if (ticks != K_FOREVER) {
-		/* Need to reprogram only if current program is smaller */
-		if (ticks > idle_original_ticks) {
-			_set_time(ticks);
-		}
-	} else {
-		sysTickStop();
-		idle_original_ticks = 0;
-	}
-	idle_mode = IDLE_TICKLESS;
-#else
-	sysTickStop();
+	ARG_UNUSED(arg);
+	uint32_t dticks;
 
-	/*
-	 * We're being asked to have the timer fire in "ticks" from now. To
-	 * maintain accuracy we must account for the remaining time left in the
-	 * timer. So we read the count out of it and add it to the requested
-	 * time out
+	/* Update overflow_cyc and clear COUNTFLAG by invoking elapsed() */
+	elapsed();
+
+	/* Increment the amount of HW cycles elapsed (complete counter
+	 * cycles) and announce the progress to the kernel.
 	 */
-	idle_original_count = sysTickCurrentGet() - timer_idle_skew;
+	cycle_count += overflow_cyc;
+	overflow_cyc = 0;
 
-	if ((ticks == -1) || (ticks > max_system_ticks)) {
-		/*
-		 * We've been asked to fire the timer so far in the future that
-		 * the required count value would not fit in the 24-bit reload
-		 * register.
-		 * Instead, we program for the maximum programmable interval
-		 * minus one system tick to prevent overflow when the left over
-		 * count read earlier is added.
+	if (TICKLESS) {
+		/* In TICKLESS mode, the SysTick.LOAD is re-programmed
+		 * in sys_clock_set_timeout(), followed by resetting of
+		 * the counter (VAL = 0).
+		 *
+		 * If a timer wrap occurs right when we re-program LOAD,
+		 * the ISR is triggered immediately after sys_clock_set_timeout()
+		 * returns; in that case we shall not increment the cycle_count
+		 * because the value has been updated before LOAD re-program.
+		 *
+		 * We can assess if this is the case by inspecting COUNTFLAG.
 		 */
-		idle_original_count += max_load_value - default_load_value;
-		idle_original_ticks = max_system_ticks - 1;
+
+		dticks = (cycle_count - announced_cycles) / CYC_PER_TICK;
+		announced_cycles += dticks * CYC_PER_TICK;
+		sys_clock_announce(dticks);
 	} else {
-		/*
-		 * leave one tick of buffer to have to time react when coming
-		 * back
-		 */
-		idle_original_ticks = ticks - 1;
-		idle_original_count += idle_original_ticks * default_load_value;
+		sys_clock_announce(1);
 	}
-
-	/*
-	 * Set timer to virtual "one shot" mode - sysTick does not have multiple
-	 * modes, so the reload value is simply changed.
-	 */
-	timer_mode = TIMER_MODE_ONE_SHOT;
-	idle_mode = IDLE_TICKLESS;
-	sysTickReloadSet(idle_original_count);
-	sysTickStart();
-#endif
+	z_arm_int_exit();
 }
 
-/**
- *
- * @brief Handling of tickless idle when interrupted
- *
- * The routine, called by _sys_power_save_idle_exit, is responsible for taking
- * the timer out of idle mode and generating an interrupt at the next
- * tick interval.  It is expected that interrupts have been disabled.
- *
- * Note that in this routine, _sys_idle_elapsed_ticks must be zero because the
- * ticker has done its work and consumed all the ticks. This has to be true
- * otherwise idle mode wouldn't have been entered in the first place.
- *
- * @return N/A
- */
-void _timer_idle_exit(void)
+int sys_clock_driver_init(const struct device *dev)
 {
-#ifdef CONFIG_TICKLESS_KERNEL
-	if (idle_mode == IDLE_TICKLESS) {
-		idle_mode = IDLE_NOT_TICKLESS;
-		if (!idle_original_ticks && _sys_clock_always_on) {
-			_sys_clock_tick_count = _get_elapsed_clock_time();
-			timer_overflow = 0;
-			sysTickReloadSet(max_load_value);
-			sysTickStart();
-			sys_tick_reload();
-		}
-	}
-#else
-	u32_t count; /* timer's current count register value */
-
-	if (timer_mode == TIMER_MODE_PERIODIC) {
-		/*
-		 * The timer interrupt handler is handling a completed tickless
-		 * idle or this has been called by mistake; there's nothing to
-		 * do here.
-		 */
-		return;
-	}
-
-	sysTickStop();
-
-	/* timer is in idle mode, adjust the ticks expired */
-
-	count = sysTickCurrentGet();
-
-	if ((count == 0) || (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk)) {
-		/*
-		 * The timer expired and/or wrapped around. Re-set the timer to
-		 * its default value and mode.
-		 */
-		sysTickReloadSet(default_load_value);
-		timer_mode = TIMER_MODE_PERIODIC;
-
-		/*
-		 * Announce elapsed ticks to the kernel. Note we are guaranteed
-		 * that the timer ISR will execute before the tick event is
-		 * serviced, so _sys_idle_elapsed_ticks is adjusted to account
-		 * for it.
-		 */
-		_sys_idle_elapsed_ticks = idle_original_ticks - 1;
-		_sys_clock_tick_announce();
-	} else {
-		u32_t elapsed;   /* elapsed "counter time" */
-		u32_t remaining; /* remaining "counter time" */
-
-		elapsed = idle_original_count - count;
-
-		remaining = elapsed % default_load_value;
-
-		/* ensure that the timer will interrupt at the next tick */
-
-		if (remaining == 0) {
-			/*
-			 * Idle was interrupted on a tick boundary. Re-set the
-			 * timer to its default value and mode.
-			 */
-			sysTickReloadSet(default_load_value);
-			timer_mode = TIMER_MODE_PERIODIC;
-		} else if (count > remaining) {
-			/*
-			 * There is less time remaining to the next tick
-			 * boundary than time left for idle. Leave in "one
-			 * shot" mode.
-			 */
-			sysTickReloadSet(remaining);
-		}
-
-		_sys_idle_elapsed_ticks = elapsed / default_load_value;
-
-		if (_sys_idle_elapsed_ticks) {
-			_sys_clock_tick_announce();
-		}
-	}
-
-	idle_mode = IDLE_NOT_TICKLESS;
-	sysTickStart();
-#endif
-}
-
-#endif /* CONFIG_TICKLESS_IDLE */
-
-/**
- *
- * @brief Initialize and enable the system clock
- *
- * This routine is used to program the systick to deliver interrupts at the
- * rate specified via the 'sys_clock_us_per_tick' global variable.
- *
- * @return 0
- */
-int _sys_clock_driver_init(struct device *device)
-{
-	/* enable counter, interrupt and set clock src to system clock */
-	u32_t ctrl = SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk |
-			SysTick_CTRL_CLKSOURCE_Msk;
-
-	ARG_UNUSED(device);
-
-	/*
-	 * Determine the reload value to achieve the configured tick rate.
-	 */
-
-	/* systick supports 24-bit H/W counter */
-	__ASSERT(sys_clock_hw_cycles_per_tick <= (1 << 24),
-		 "sys_clock_hw_cycles_per_tick too large");
-	sysTickReloadSet(sys_clock_hw_cycles_per_tick - 1);
-
-#ifdef CONFIG_TICKLESS_IDLE
-
-	/* calculate hardware-specific parameters for tickless idle */
-
-	sysTickTicklessIdleInit();
-
-#endif /* CONFIG_TICKLESS_IDLE */
+	ARG_UNUSED(dev);
 
 	NVIC_SetPriority(SysTick_IRQn, _IRQ_PRIO_OFFSET);
-
-	SysTick->CTRL = ctrl;
-
-	SysTick->VAL = 0; /* triggers immediate reload of count */
-
+	last_load = CYC_PER_TICK - 1;
+	overflow_cyc = 0U;
+	SysTick->LOAD = last_load;
+	SysTick->VAL = 0; /* resets timer to last_load */
+	SysTick->CTRL |= (SysTick_CTRL_ENABLE_Msk |
+			  SysTick_CTRL_TICKINT_Msk |
+			  SysTick_CTRL_CLKSOURCE_Msk);
 	return 0;
 }
 
-/**
- *
- * @brief Read the platform's timer hardware
- *
- * This routine returns the current time in terms of timer hardware clock
- * cycles.
- *
- * @return up counter of elapsed clock cycles
- *
- * \INTERNAL WARNING
- * systick counter is a 24-bit down counter which is reset to "reload" value
- * once it reaches 0.
- */
-u32_t _timer_cycle_get_32(void)
+void sys_clock_set_timeout(int32_t ticks, bool idle)
 {
-#ifdef CONFIG_TICKLESS_KERNEL
-return (u32_t) get_elapsed_count();
-#else
-	u32_t cac, count;
+	/* Fast CPUs and a 24 bit counter mean that even idle systems
+	 * need to wake up multiple times per second.  If the kernel
+	 * allows us to miss tick announcements in idle, then shut off
+	 * the counter. (Note: we can assume if idle==true that
+	 * interrupts are already disabled)
+	 */
+	if (IS_ENABLED(CONFIG_TICKLESS_KERNEL) && idle && ticks == K_TICKS_FOREVER) {
+		SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+		last_load = TIMER_STOPPED;
+		return;
+	}
 
-	do {
-		cac = clock_accumulated_count;
-		count = SysTick->LOAD - SysTick->VAL;
-	} while (cac != clock_accumulated_count);
+#if defined(CONFIG_TICKLESS_KERNEL)
+	uint32_t delay;
 
-	return cac + count;
+	ticks = (ticks == K_TICKS_FOREVER) ? MAX_TICKS : ticks;
+	ticks = CLAMP(ticks - 1, 0, (int32_t)MAX_TICKS);
+
+	k_spinlock_key_t key = k_spin_lock(&lock);
+
+	uint32_t pending = elapsed();
+
+	cycle_count += pending;
+	overflow_cyc = 0U;
+
+	uint32_t unannounced = cycle_count - announced_cycles;
+
+	if ((int32_t)unannounced < 0) {
+		/* We haven't announced for more than half the 32-bit
+		 * wrap duration, because new timeouts keep being set
+		 * before the existing one fires.  Force an announce
+		 * to avoid loss of a wrap event, making sure the
+		 * delay is at least the minimum delay possible.
+		 */
+		last_load = MIN_DELAY;
+	} else {
+		/* Desired delay in the future */
+		delay = ticks * CYC_PER_TICK;
+
+		/* Round delay up to next tick boundary */
+		delay += unannounced;
+		delay =
+		 ((delay + CYC_PER_TICK - 1) / CYC_PER_TICK) * CYC_PER_TICK;
+		delay -= unannounced;
+		delay = MAX(delay, MIN_DELAY);
+		if (delay > MAX_CYCLES) {
+			last_load = MAX_CYCLES;
+		} else {
+			last_load = delay;
+		}
+	}
+	SysTick->LOAD = last_load - 1;
+	SysTick->VAL = 0; /* resets timer to last_load */
+
+	k_spin_unlock(&lock, key);
 #endif
 }
 
-#ifdef CONFIG_SYSTEM_CLOCK_DISABLE
-
-/**
- *
- * @brief Stop announcing ticks into the kernel
- *
- * This routine disables the systick so that timer interrupts are no
- * longer delivered.
- *
- * @return N/A
- */
-void sys_clock_disable(void)
+uint32_t sys_clock_elapsed(void)
 {
-	unsigned int key; /* interrupt lock level */
+	if (!TICKLESS) {
+		return 0;
+	}
 
-	key = irq_lock();
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	uint32_t cyc = elapsed() + cycle_count - announced_cycles;
 
-	/* disable the systick counter and systick interrupt */
-
-	sysTickStop();
-
-	irq_unlock(key);
+	k_spin_unlock(&lock, key);
+	return cyc / CYC_PER_TICK;
 }
 
-#endif /* CONFIG_SYSTEM_CLOCK_DISABLE */
+uint32_t sys_clock_cycle_get_32(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	uint32_t ret = elapsed() + cycle_count;
+
+	k_spin_unlock(&lock, key);
+	return ret;
+}
+
+void sys_clock_idle_exit(void)
+{
+	if (last_load == TIMER_STOPPED) {
+		SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
+	}
+}
+
+void sys_clock_disable(void)
+{
+	SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+}

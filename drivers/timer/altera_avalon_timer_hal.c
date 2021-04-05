@@ -7,47 +7,62 @@
 #include <kernel.h>
 #include <arch/cpu.h>
 #include <device.h>
-#include <system_timer.h>
+#include <drivers/timer/system_timer.h>
 #include <altera_common.h>
 
 #include "altera_avalon_timer_regs.h"
 #include "altera_avalon_timer.h"
 
-static u32_t accumulated_cycle_count;
+/* The old driver "now" API would return a full uptime value.  The new
+ * one only requires the driver to track ticks since the last announce
+ * call.  Implement the new call in terms of the old one on legacy
+ * drivers by keeping (yet another) uptime value locally.
+ */
+static uint32_t driver_uptime;
 
-static void timer_irq_handler(void *unused)
+static uint32_t accumulated_cycle_count;
+
+static int32_t _sys_idle_elapsed_ticks = 1;
+
+static void wrapped_announce(int32_t ticks)
+{
+	driver_uptime += ticks;
+	sys_clock_announce(ticks);
+}
+
+static void timer_irq_handler(const void *unused)
 {
 	ARG_UNUSED(unused);
 
-	accumulated_cycle_count += sys_clock_hw_cycles_per_tick;
+	accumulated_cycle_count += k_ticks_to_cyc_floor32(1);
 
 	/* Clear the interrupt */
 	alt_handle_irq((void *)TIMER_0_BASE, TIMER_0_IRQ);
 
-	_sys_clock_tick_announce();
+	wrapped_announce(_sys_idle_elapsed_ticks);
 }
 
-int _sys_clock_driver_init(struct device *device)
+int sys_clock_driver_init(const struct device *dev)
 {
-	ARG_UNUSED(device);
+	ARG_UNUSED(dev);
 
 	IOWR_ALTERA_AVALON_TIMER_PERIODL(TIMER_0_BASE,
-			sys_clock_hw_cycles_per_tick & 0xFFFF);
+			k_ticks_to_cyc_floor32(1) & 0xFFFF);
 	IOWR_ALTERA_AVALON_TIMER_PERIODH(TIMER_0_BASE,
-			(sys_clock_hw_cycles_per_tick >> 16) & 0xFFFF);
+			(k_ticks_to_cyc_floor32(1) >> 16) & 0xFFFF);
 
 	IRQ_CONNECT(TIMER_0_IRQ, 0, timer_irq_handler, NULL, 0);
 	irq_enable(TIMER_0_IRQ);
 
 	alt_avalon_timer_sc_init((void *)TIMER_0_BASE, 0,
-			TIMER_0_IRQ, sys_clock_hw_cycles_per_tick);
+			TIMER_0_IRQ, k_ticks_to_cyc_floor32(1));
 
 	return 0;
 }
 
-u32_t _timer_cycle_get_32(void)
+uint32_t sys_clock_cycle_get_32(void)
 {
-	/* RTOS-2676: Per the Altera Embedded IP Peripherals guide, you cannot
+	/* Per the Altera Embedded IP Peripherals guide, you cannot
 	 * use a timer instance for both the system clock and timestamps
 	 * at the same time.
 	 *
@@ -64,4 +79,9 @@ u32_t _timer_cycle_get_32(void)
 	 * is currently unimplemented.
 	 */
 	return accumulated_cycle_count;
+}
+
+uint32_t sys_clock_elapsed(void)
+{
+	return 0;
 }

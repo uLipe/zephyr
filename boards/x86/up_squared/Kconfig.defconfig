@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_UP_SQUARED
+
+config BOARD
+	default "up_squared"
+
+config BUILD_OUTPUT_STRIPPED
+	default y
+
+config MP_NUM_CPUS
+	default 2
+
+endif # BOARD_UP_SQUARED
+
+
+if BOARD_UP_SQUARED_32
+
+config BOARD
+	default "up_squared_32"
+
+config BUILD_OUTPUT_STRIPPED
+	default y
+
+endif # BOARD_UP_SQUARED_32

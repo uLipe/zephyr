@@ -11,31 +11,34 @@
  * ARC-specific kernel error handling interface. Included by arc/arch.h.
  */
 
-#ifndef _ARCH_ARC_V2_ERROR_H_
-#define _ARCH_ARC_V2_ERROR_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARC_V2_ERROR_H_
+#define ZEPHYR_INCLUDE_ARCH_ARC_V2_ERROR_H_
 
+#include <arch/arc/syscall.h>
 #include <arch/arc/v2/exc.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifndef _ASMLANGUAGE
-#include <toolchain/gcc.h>
-extern FUNC_NORETURN void _NanoFatalErrorHandler(unsigned int,
-						 const NANO_ESF*);
-extern void _SysFatalErrorHandler(unsigned int cause, const NANO_ESF *esf);
-#endif
-
-#define _NANO_ERR_HW_EXCEPTION (0)      /* MPU/Bus/Usage fault */
-#define _NANO_ERR_STACK_CHK_FAIL (2)    /* Stack corruption detected */
-#define _NANO_ERR_ALLOCATION_FAIL (3)   /* Kernel Allocation Failure */
-#define _NANO_ERR_KERNEL_OOPS (4)       /* Kernel oops (fatal to thread) */
-#define _NANO_ERR_KERNEL_PANIC (5)	/* Kernel panic (fatal to system) */
+/*
+ * use trap_s to raise a SW exception
+ */
+#define ARCH_EXCEPT(reason_p)	do { \
+		__asm__ volatile ( \
+		"mov %%r0, %[reason]\n\t" \
+		"trap_s %[id]\n\t" \
+		: \
+		: [reason] "i" (reason_p), \
+		[id] "i" (_TRAP_S_CALL_RUNTIME_EXCEPT) \
+		: "memory"); \
+		CODE_UNREACHABLE; /* LCOV_EXCL_LINE */ \
+	} while (false)
 
 #ifdef __cplusplus
 }
 #endif
 
 
-#endif /* _ARCH_ARC_V2_ERROR_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARC_V2_ERROR_H_ */

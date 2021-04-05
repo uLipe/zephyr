@@ -13,67 +13,82 @@
 #ifndef __ICMPV6_H
 #define __ICMPV6_H
 
-#include <misc/slist.h>
+#include <sys/slist.h>
 #include <zephyr/types.h>
 
 #include <net/net_ip.h>
 #include <net/net_pkt.h>
 
 struct net_icmpv6_ns_hdr {
-	u32_t reserved;
+	uint32_t reserved;
 	struct in6_addr tgt;
 } __packed;
 
 struct net_icmpv6_nd_opt_hdr {
-	u8_t type;
-	u8_t len;
+	uint8_t type;
+	uint8_t len;
 } __packed;
 
 struct net_icmpv6_na_hdr {
-	u8_t flags;
-	u8_t reserved[3];
+	uint8_t flags;
+	uint8_t reserved[3];
 	struct in6_addr tgt;
 } __packed;
 
 struct net_icmpv6_rs_hdr {
-	u32_t reserved;
+	uint32_t reserved;
 } __packed;
 
 struct net_icmpv6_ra_hdr {
-	u8_t cur_hop_limit;
-	u8_t flags;
-	u16_t router_lifetime;
-	u32_t reachable_time;
-	u32_t retrans_timer;
+	uint8_t cur_hop_limit;
+	uint8_t flags;
+	uint16_t router_lifetime;
+	uint32_t reachable_time;
+	uint32_t retrans_timer;
 } __packed;
 
 struct net_icmpv6_nd_opt_mtu {
-	u8_t type;
-	u8_t len;
-	u16_t reserved;
-	u32_t mtu;
+	uint16_t reserved;
+	uint32_t mtu;
 } __packed;
 
 struct net_icmpv6_nd_opt_prefix_info {
-	u8_t type;
-	u8_t len;
-	u8_t prefix_len;
-	u8_t flags;
-	u32_t valid_lifetime;
-	u32_t preferred_lifetime;
-	u32_t reserved;
+	uint8_t prefix_len;
+	uint8_t flags;
+	uint32_t valid_lifetime;
+	uint32_t preferred_lifetime;
+	uint32_t reserved;
 	struct in6_addr prefix;
 } __packed;
 
 struct net_icmpv6_nd_opt_6co {
-	u8_t type;
-	u8_t len;
-	u8_t context_len;
-	u8_t flag; /*res:3,c:1,cid:4 */
-	u16_t reserved;
-	u16_t lifetime;
+	uint8_t context_len;
+	uint8_t flag; /*res:3,c:1,cid:4 */
+	uint16_t reserved;
+	uint16_t lifetime;
 	struct in6_addr prefix;
 } __packed;
+
+struct net_icmpv6_echo_req {
+	uint16_t identifier;
+	uint16_t sequence;
+} __packed;
+
+struct net_icmpv6_mld_query {
+	uint16_t max_response_code;
+	uint16_t reserved;
+	struct in6_addr mcast_address;
+	uint16_t flagg; /*S, QRV & QQIC */
+	uint16_t num_sources;
+} __packed;
+
+struct net_icmpv6_mld_mcast_record {
+	uint8_t record_type;
+	uint8_t aux_data_len;
+	uint16_t num_sources;
+	struct in6_addr mcast_address;
+} __packed;
+
 
 #define NET_ICMPV6_ND_O_FLAG(flag) ((flag) & 0x40)
 #define NET_ICMPV6_ND_M_FLAG(flag) ((flag) & 0x80)
@@ -127,15 +142,18 @@ struct net_icmpv6_nd_opt_6co {
 /* ICMPv6 header has 4 unused bytes that must be zero, RFC 4443 ch 3.1 */
 #define NET_ICMPV6_UNUSED_LEN 4
 
-typedef enum net_verdict (*icmpv6_callback_handler_t)(struct net_pkt *pkt);
+typedef enum net_verdict (*icmpv6_callback_handler_t)(
+						struct net_pkt *pkt,
+						struct net_ipv6_hdr *ip_hdr,
+						struct net_icmp_hdr *icmp_hdr);
 
 const char *net_icmpv6_type2str(int icmpv6_type);
 
 struct net_icmpv6_handler {
 	sys_snode_t node;
-	u8_t type;
-	u8_t code;
 	icmpv6_callback_handler_t handler;
+	uint8_t type;
+	uint8_t code;
 };
 
 /**
@@ -148,8 +166,8 @@ struct net_icmpv6_handler {
  * what value to use.
  * @return Return 0 if the sending succeed, <0 otherwise.
  */
-int net_icmpv6_send_error(struct net_pkt *pkt, u8_t type, u8_t code,
-			  u32_t param);
+int net_icmpv6_send_error(struct net_pkt *pkt, uint8_t type, uint8_t code,
+			  uint32_t param);
 
 /**
  * @brief Send ICMPv6 echo request message.
@@ -160,42 +178,52 @@ int net_icmpv6_send_error(struct net_pkt *pkt, u8_t type, u8_t code,
  * to this Echo Request. May be zero.
  * @param sequence A sequence number to aid in matching Echo Replies
  * to this Echo Request. May be zero.
+ * @param data Arbitrary payload data that will be included in the
+ * Echo Reply verbatim. May be zero.
+ * @param data_size Size of the Payload Data in bytes. May be zero.
  *
  * @return Return 0 if the sending succeed, <0 otherwise.
  */
+#if defined(CONFIG_NET_NATIVE_IPV6)
 int net_icmpv6_send_echo_request(struct net_if *iface,
 				 struct in6_addr *dst,
-				 u16_t identifier,
-				 u16_t sequence);
+				 uint16_t identifier,
+				 uint16_t sequence,
+				 const void *data,
+				 size_t data_size);
+#else
+static inline int net_icmpv6_send_echo_request(struct net_if *iface,
+					       struct in6_addr *dst,
+					       uint16_t identifier,
+					       uint16_t sequence,
+					       const void *data,
+					       size_t data_size)
+{
+	ARG_UNUSED(iface);
+	ARG_UNUSED(dst);
+	ARG_UNUSED(identifier);
+	ARG_UNUSED(sequence);
+	ARG_UNUSED(data);
+	ARG_UNUSED(data_size);
 
+	return -ENOTSUP;
+}
+#endif
+
+#if defined(CONFIG_NET_NATIVE_IPV6)
 void net_icmpv6_register_handler(struct net_icmpv6_handler *handler);
 void net_icmpv6_unregister_handler(struct net_icmpv6_handler *handler);
 enum net_verdict net_icmpv6_input(struct net_pkt *pkt,
-				  u8_t type, u8_t code);
+				  struct net_ipv6_hdr *ip_hdr);
 
-struct net_icmp_hdr *net_icmpv6_get_hdr(struct net_pkt *pkt,
-					struct net_icmp_hdr *hdr);
-struct net_icmp_hdr *net_icmpv6_set_hdr(struct net_pkt *pkt,
-					struct net_icmp_hdr *hdr);
-struct net_buf *net_icmpv6_set_chksum(struct net_pkt *pkt,
-				      struct net_buf *frag);
-struct net_icmpv6_ns_hdr *net_icmpv6_get_ns_hdr(struct net_pkt *pkt,
-						struct net_icmpv6_ns_hdr *hdr);
-struct net_icmpv6_ns_hdr *net_icmpv6_set_ns_hdr(struct net_pkt *pkt,
-						struct net_icmpv6_ns_hdr *hdr);
-struct net_icmpv6_nd_opt_hdr *net_icmpv6_get_nd_opt_hdr(struct net_pkt *pkt,
-					    struct net_icmpv6_nd_opt_hdr *hdr);
-struct net_icmpv6_na_hdr *net_icmpv6_get_na_hdr(struct net_pkt *pkt,
-						struct net_icmpv6_na_hdr *hdr);
-struct net_icmpv6_na_hdr *net_icmpv6_set_na_hdr(struct net_pkt *pkt,
-						struct net_icmpv6_na_hdr *hdr);
-struct net_icmpv6_ra_hdr *net_icmpv6_get_ra_hdr(struct net_pkt *pkt,
-						struct net_icmpv6_ra_hdr *hdr);
+int net_icmpv6_create(struct net_pkt *pkt, uint8_t icmp_type, uint8_t icmp_code);
+int net_icmpv6_finalize(struct net_pkt *pkt);
 
-#if defined(CONFIG_NET_IPV6)
 void net_icmpv6_init(void);
 #else
 #define net_icmpv6_init(...)
+#define net_icmpv6_register_handler(...)
+#define net_icmpv6_unregister_handler(...)
 #endif
 
 #endif /* __ICMPV6_H */

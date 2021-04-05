@@ -4,11 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#if 1
-#define SYS_LOG_DOMAIN "dns-res"
-#define NET_SYS_LOG_LEVEL SYS_LOG_LEVEL_DEBUG
-#define NET_LOG_ENABLED 1
-#endif
+#include <logging/log.h>
+LOG_MODULE_REGISTER(net_dns_resolve_client_sample, LOG_LEVEL_DBG);
 
 #include <zephyr.h>
 #include <linker/sections.h>
@@ -31,7 +28,7 @@ static void do_mdns_ipv6_lookup(struct k_work *work);
 #endif
 #endif
 
-#define DNS_TIMEOUT K_SECONDS(2)
+#define DNS_TIMEOUT (2 * MSEC_PER_SEC)
 
 void dns_result_cb(enum dns_resolve_status status,
 		   struct dns_addrinfo *info,
@@ -43,21 +40,21 @@ void dns_result_cb(enum dns_resolve_status status,
 
 	switch (status) {
 	case DNS_EAI_CANCELED:
-		NET_INFO("DNS query was canceled");
+		LOG_INF("DNS query was canceled");
 		return;
 	case DNS_EAI_FAIL:
-		NET_INFO("DNS resolve failed");
+		LOG_INF("DNS resolve failed");
 		return;
 	case DNS_EAI_NODATA:
-		NET_INFO("Cannot resolve address");
+		LOG_INF("Cannot resolve address");
 		return;
 	case DNS_EAI_ALLDONE:
-		NET_INFO("DNS resolving finished");
+		LOG_INF("DNS resolving finished");
 		return;
 	case DNS_EAI_INPROGRESS:
 		break;
 	default:
-		NET_INFO("DNS resolving error (%d)", status);
+		LOG_INF("DNS resolving error (%d)", status);
 		return;
 	}
 
@@ -68,27 +65,18 @@ void dns_result_cb(enum dns_resolve_status status,
 	if (info->ai_family == AF_INET) {
 		hr_family = "IPv4";
 		addr = &net_sin(&info->ai_addr)->sin_addr;
-
-#if defined(CONFIG_MDNS_RESOLVER) && defined(CONFIG_NET_IPV4)
-		k_delayed_work_init(&mdns_ipv4_timer, do_mdns_ipv4_lookup);
-		k_delayed_work_submit(&mdns_ipv4_timer, 0);
-#endif
 	} else if (info->ai_family == AF_INET6) {
 		hr_family = "IPv6";
 		addr = &net_sin6(&info->ai_addr)->sin6_addr;
-
-#if defined(CONFIG_MDNS_RESOLVER) && defined(CONFIG_NET_IPV6)
-		k_delayed_work_init(&mdns_ipv6_timer, do_mdns_ipv6_lookup);
-		k_delayed_work_submit(&mdns_ipv6_timer, 0);
-#endif
 	} else {
-		NET_ERR("Invalid IP address family %d", info->ai_family);
+		LOG_ERR("Invalid IP address family %d", info->ai_family);
 		return;
 	}
 
-	NET_INFO("%s %s address: %s", user_data ? (char *)user_data : "<null>", hr_family,
-		 net_addr_ntop(info->ai_family, addr,
-			       hr_addr, sizeof(hr_addr)));
+	LOG_INF("%s %s address: %s", user_data ? (char *)user_data : "<null>",
+		hr_family,
+		log_strdup(net_addr_ntop(info->ai_family, addr,
+					 hr_addr, sizeof(hr_addr))));
 }
 
 void mdns_result_cb(enum dns_resolve_status status,
@@ -101,21 +89,21 @@ void mdns_result_cb(enum dns_resolve_status status,
 
 	switch (status) {
 	case DNS_EAI_CANCELED:
-		NET_INFO("DNS query was canceled");
+		LOG_INF("mDNS query was canceled");
 		return;
 	case DNS_EAI_FAIL:
-		NET_INFO("DNS resolve failed");
+		LOG_INF("mDNS resolve failed");
 		return;
 	case DNS_EAI_NODATA:
-		NET_INFO("Cannot resolve address");
+		LOG_INF("Cannot resolve address using mDNS");
 		return;
 	case DNS_EAI_ALLDONE:
-		NET_INFO("DNS resolving finished");
+		LOG_INF("mDNS resolving finished");
 		return;
 	case DNS_EAI_INPROGRESS:
 		break;
 	default:
-		NET_INFO("DNS resolving error (%d)", status);
+		LOG_INF("mDNS resolving error (%d)", status);
 		return;
 	}
 
@@ -130,13 +118,14 @@ void mdns_result_cb(enum dns_resolve_status status,
 		hr_family = "IPv6";
 		addr = &net_sin6(&info->ai_addr)->sin6_addr;
 	} else {
-		NET_ERR("Invalid IP address family %d", info->ai_family);
+		LOG_ERR("Invalid IP address family %d", info->ai_family);
 		return;
 	}
 
-	NET_INFO("%s %s address: %s", user_data ? (char *)user_data : "<null>", hr_family,
-		 net_addr_ntop(info->ai_family, addr,
-			       hr_addr, sizeof(hr_addr)));
+	LOG_INF("%s %s address: %s", user_data ? (char *)user_data : "<null>",
+		hr_family,
+		log_strdup(net_addr_ntop(info->ai_family, addr,
+					 hr_addr, sizeof(hr_addr))));
 }
 
 #if defined(CONFIG_NET_DHCPV4)
@@ -146,7 +135,7 @@ static struct k_delayed_work ipv4_timer;
 static void do_ipv4_lookup(struct k_work *work)
 {
 	static const char *query = "www.zephyrproject.org";
-	u16_t dns_id;
+	static uint16_t dns_id;
 	int ret;
 
 	ret = dns_get_addr_info(query,
@@ -156,15 +145,15 @@ static void do_ipv4_lookup(struct k_work *work)
 				(void *)query,
 				DNS_TIMEOUT);
 	if (ret < 0) {
-		NET_ERR("Cannot resolve IPv4 address (%d)", ret);
+		LOG_ERR("Cannot resolve IPv4 address (%d)", ret);
 		return;
 	}
 
-	NET_DBG("DNS id %u", dns_id);
+	LOG_DBG("DNS id %u", dns_id);
 }
 
 static void ipv4_addr_add_handler(struct net_mgmt_event_callback *cb,
-				  u32_t mgmt_event,
+				  uint32_t mgmt_event,
 				  struct net_if *iface)
 {
 	char hr_addr[NET_IPV4_ADDR_LEN];
@@ -175,22 +164,27 @@ static void ipv4_addr_add_handler(struct net_mgmt_event_callback *cb,
 	}
 
 	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
-		struct net_if_addr *if_addr = &iface->ipv4.unicast[i];
+		struct net_if_addr *if_addr =
+			&iface->config.ip.ipv4->unicast[i];
 
 		if (if_addr->addr_type != NET_ADDR_DHCP || !if_addr->is_used) {
 			continue;
 		}
 
-		NET_INFO("IPv4 address: %s",
-			 net_addr_ntop(AF_INET, &if_addr->address.in_addr,
-				       hr_addr, NET_IPV4_ADDR_LEN));
-		NET_INFO("Lease time: %u seconds", iface->dhcpv4.lease_time);
-		NET_INFO("Subnet: %s",
-			 net_addr_ntop(AF_INET, &iface->ipv4.netmask,
-				       hr_addr, NET_IPV4_ADDR_LEN));
-		NET_INFO("Router: %s",
-			 net_addr_ntop(AF_INET, &iface->ipv4.gw,
-				       hr_addr, NET_IPV4_ADDR_LEN));
+		LOG_INF("IPv4 address: %s",
+			log_strdup(net_addr_ntop(AF_INET,
+						 &if_addr->address.in_addr,
+						 hr_addr, NET_IPV4_ADDR_LEN)));
+		LOG_INF("Lease time: %u seconds",
+			 iface->config.dhcpv4.lease_time);
+		LOG_INF("Subnet: %s",
+			log_strdup(net_addr_ntop(AF_INET,
+					       &iface->config.ip.ipv4->netmask,
+					       hr_addr, NET_IPV4_ADDR_LEN)));
+		LOG_INF("Router: %s",
+			log_strdup(net_addr_ntop(AF_INET,
+					       &iface->config.ip.ipv4->gw,
+					       hr_addr, NET_IPV4_ADDR_LEN)));
 		break;
 	}
 
@@ -199,12 +193,17 @@ static void ipv4_addr_add_handler(struct net_mgmt_event_callback *cb,
 	 * So run it from work queue instead.
 	 */
 	k_delayed_work_init(&ipv4_timer, do_ipv4_lookup);
-	k_delayed_work_submit(&ipv4_timer, 0);
+	k_delayed_work_submit(&ipv4_timer, K_NO_WAIT);
+
+#if defined(CONFIG_MDNS_RESOLVER)
+	k_delayed_work_init(&mdns_ipv4_timer, do_mdns_ipv4_lookup);
+	k_delayed_work_submit(&mdns_ipv4_timer, K_NO_WAIT);
+#endif
 }
 
 static void setup_dhcpv4(struct net_if *iface)
 {
-	NET_INFO("Getting IPv4 address via DHCP before issuing DNS query");
+	LOG_INF("Getting IPv4 address via DHCP before issuing DNS query");
 
 	net_mgmt_init_event_callback(&mgmt4_cb, ipv4_addr_add_handler,
 				     NET_EVENT_IPV4_ADDR_ADD);
@@ -222,50 +221,37 @@ static void setup_dhcpv4(struct net_if *iface)
 static void do_mdns_ipv4_lookup(struct k_work *work)
 {
 	static const char *query = "zephyr.local";
-	u16_t dns_id;
 	int ret;
 
-	NET_DBG("Doing mDNS IPv4 query");
+	LOG_DBG("Doing mDNS IPv4 query");
 
 	ret = dns_get_addr_info(query,
 				DNS_QUERY_TYPE_A,
-				&dns_id,
+				NULL,
 				mdns_result_cb,
 				(void *)query,
 				DNS_TIMEOUT);
 	if (ret < 0) {
-		NET_ERR("Cannot resolve mDNS IPv4 address (%d)", ret);
+		LOG_ERR("Cannot resolve mDNS IPv4 address (%d)", ret);
 		return;
 	}
 
-	NET_DBG("mDNS id %u", dns_id);
+	LOG_DBG("mDNS v4 query sent");
 }
 #endif
 #endif
 
 #if defined(CONFIG_NET_IPV4) && !defined(CONFIG_NET_DHCPV4)
 
-#if !defined(CONFIG_NET_APP_MY_IPV4_ADDR)
+#if !defined(CONFIG_NET_CONFIG_MY_IPV4_ADDR)
 #error "You need to define an IPv4 address or enable DHCPv4!"
 #endif
 
-static void setup_ipv4(struct net_if *iface)
+static void do_ipv4_lookup(void)
 {
 	static const char *query = "www.zephyrproject.org";
-	char hr_addr[NET_IPV4_ADDR_LEN];
-	struct in_addr addr;
-	u16_t dns_id;
+	static uint16_t dns_id;
 	int ret;
-
-	if (net_addr_pton(AF_INET, CONFIG_NET_APP_MY_IPV4_ADDR, &addr)) {
-		NET_ERR("Invalid address: %s", CONFIG_NET_APP_MY_IPV4_ADDR);
-		return;
-	}
-
-	net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0);
-
-	NET_INFO("IPv4 address: %s",
-		 net_addr_ntop(AF_INET, &addr, hr_addr, NET_IPV4_ADDR_LEN));
 
 	ret = dns_get_addr_info(query,
 				DNS_QUERY_TYPE_A,
@@ -274,11 +260,23 @@ static void setup_ipv4(struct net_if *iface)
 				(void *)query,
 				DNS_TIMEOUT);
 	if (ret < 0) {
-		NET_ERR("Cannot resolve IPv4 address (%d)", ret);
+		LOG_ERR("Cannot resolve IPv4 address (%d)", ret);
 		return;
 	}
 
-	NET_DBG("DNS id %u", dns_id);
+	LOG_DBG("DNS id %u", dns_id);
+}
+
+static void setup_ipv4(struct net_if *iface)
+{
+	ARG_UNUSED(iface);
+
+	do_ipv4_lookup();
+
+#if defined(CONFIG_MDNS_RESOLVER) && defined(CONFIG_NET_IPV4)
+	k_delayed_work_init(&mdns_ipv4_timer, do_mdns_ipv4_lookup);
+	k_delayed_work_submit(&mdns_ipv4_timer, K_NO_WAIT);
+#endif
 }
 
 #else
@@ -287,14 +285,14 @@ static void setup_ipv4(struct net_if *iface)
 
 #if defined(CONFIG_NET_IPV6)
 
-#if !defined(CONFIG_NET_APP_MY_IPV6_ADDR)
+#if !defined(CONFIG_NET_CONFIG_MY_IPV6_ADDR)
 #error "You need to define an IPv6 address!"
 #endif
 
 static void do_ipv6_lookup(void)
 {
 	static const char *query = "www.zephyrproject.org";
-	u16_t dns_id;
+	static uint16_t dns_id;
 	int ret;
 
 	ret = dns_get_addr_info(query,
@@ -304,39 +302,45 @@ static void do_ipv6_lookup(void)
 				(void *)query,
 				DNS_TIMEOUT);
 	if (ret < 0) {
-		NET_ERR("Cannot resolve IPv6 address (%d)", ret);
+		LOG_ERR("Cannot resolve IPv6 address (%d)", ret);
 		return;
 	}
 
-	NET_DBG("DNS id %u", dns_id);
+	LOG_DBG("DNS id %u", dns_id);
 }
 
 static void setup_ipv6(struct net_if *iface)
 {
+	ARG_UNUSED(iface);
+
 	do_ipv6_lookup();
+
+#if defined(CONFIG_MDNS_RESOLVER) && defined(CONFIG_NET_IPV6)
+	k_delayed_work_init(&mdns_ipv6_timer, do_mdns_ipv6_lookup);
+	k_delayed_work_submit(&mdns_ipv6_timer, K_NO_WAIT);
+#endif
 }
 
 #if defined(CONFIG_MDNS_RESOLVER)
 static void do_mdns_ipv6_lookup(struct k_work *work)
 {
 	static const char *query = "zephyr.local";
-	u16_t dns_id;
 	int ret;
 
-	NET_DBG("Doing mDNS IPv6 query");
+	LOG_DBG("Doing mDNS IPv6 query");
 
 	ret = dns_get_addr_info(query,
 				DNS_QUERY_TYPE_AAAA,
-				&dns_id,
+				NULL,
 				mdns_result_cb,
 				(void *)query,
 				DNS_TIMEOUT);
 	if (ret < 0) {
-		NET_ERR("Cannot resolve mDNS IPv6 address (%d)", ret);
+		LOG_ERR("Cannot resolve mDNS IPv6 address (%d)", ret);
 		return;
 	}
 
-	NET_DBG("mDNS id %u", dns_id);
+	LOG_DBG("mDNS v6 query sent");
 }
 #endif
 
@@ -348,7 +352,7 @@ void main(void)
 {
 	struct net_if *iface = net_if_get_default();
 
-	NET_INFO("Starting DNS resolve sample");
+	LOG_INF("Starting DNS resolve sample");
 
 	setup_ipv4(iface);
 

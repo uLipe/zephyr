@@ -5,13 +5,13 @@
  */
 
 #include <zephyr.h>
-#include <sensor.h>
+#include <drivers/sensor.h>
 #include <stdio.h>
 
 void main(void)
 {
 	struct sensor_value green;
-	struct device *dev = device_get_binding(CONFIG_MAX30101_NAME);
+	const struct device *dev = device_get_binding(DT_LABEL(DT_INST(0, max_max30101)));
 
 	if (dev == NULL) {
 		printf("Could not get max30101 device\n");
@@ -25,6 +25,6 @@ void main(void)
 		/* Print green LED data*/
 		printf("GREEN=%d\n", green.val1);
 
-		k_sleep(20);
+		k_sleep(K_MSEC(20));
 	}
 }

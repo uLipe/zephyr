@@ -1,21 +1,26 @@
-CONFIG_ARM=y
-CONFIG_BOARD_NUCLEO_F411RE=y
+# SPDX-License-Identifier: Apache-2.0
+
 CONFIG_SOC_SERIES_STM32F4X=y
 CONFIG_SOC_STM32F411XE=y
 # 96MHz system clock (highest value to get a precise USB clock)
 CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=96000000
-CONFIG_SYS_CLOCK_TICKS_PER_SEC=1000
 
 # Enable MPU
-CONFIG_STM32_ARM_MPU_ENABLE=y
+CONFIG_ARM_MPU=y
 
-# enable USART2 - passthrough to STLINK v2 connector
-CONFIG_UART_STM32_PORT_2=y
+# Enable HW stack protection
+CONFIG_HW_STACK_PROTECTION=y
+
+CONFIG_SERIAL=y
+
+# console
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=y
 
 # enable pinmux
 CONFIG_PINMUX=y
 
-# enable GPIO ports A, B, C, D
+# enable GPIO
 CONFIG_GPIO=y
 
 # clock configuration
@@ -29,11 +34,14 @@ CONFIG_CLOCK_STM32_PLL_SRC_HSE=y
 # however, the board does not have an external oscillator, so just use
 # the 8MHz clock signal coming from integrated STLink
 CONFIG_CLOCK_STM32_HSE_BYPASS=y
-# produce 84MHz clock at PLL output
+
+# produce 96MHz clock at PLL output
 CONFIG_CLOCK_STM32_PLL_M_DIVISOR=8
 CONFIG_CLOCK_STM32_PLL_N_MULTIPLIER=384
 CONFIG_CLOCK_STM32_PLL_P_DIVISOR=4
 CONFIG_CLOCK_STM32_PLL_Q_DIVISOR=8
 CONFIG_CLOCK_STM32_AHB_PRESCALER=1
+
+# APB1 clock must not exceed 50MHz limit
 CONFIG_CLOCK_STM32_APB1_PRESCALER=2
 CONFIG_CLOCK_STM32_APB2_PRESCALER=1

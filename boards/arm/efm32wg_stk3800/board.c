@@ -5,13 +5,13 @@
  */
 
 #include <init.h>
-#include <board.h>
-#include <gpio.h>
-#include <misc/printk.h>
+#include "board.h"
+#include <drivers/gpio.h>
+#include <sys/printk.h>
 
-static int efm32wg_stk3800_init(struct device *dev)
+static int efm32wg_stk3800_init(const struct device *dev)
 {
-	struct device *bce_dev; /* Board Controller Enable Gpio Device */
+	const struct device *bce_dev; /* Board Controller Enable Gpio Device */
 
 	ARG_UNUSED(dev);
 
@@ -23,11 +23,10 @@ static int efm32wg_stk3800_init(struct device *dev)
 		return -ENODEV;
 	}
 
-	gpio_pin_configure(bce_dev, BC_ENABLE_GPIO_PIN, GPIO_DIR_OUT);
-	gpio_pin_write(bce_dev, BC_ENABLE_GPIO_PIN, 1);
+	gpio_pin_configure(bce_dev, BC_ENABLE_GPIO_PIN, GPIO_OUTPUT_HIGH);
 
 	return 0;
 }
 
 /* needs to be done after GPIO driver init */
-SYS_INIT(efm32wg_stk3800_init, PRE_KERNEL_1, CONFIG_BOARD_INIT_PRIORITY);
+SYS_INIT(efm32wg_stk3800_init, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);

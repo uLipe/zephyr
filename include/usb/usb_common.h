@@ -1,8 +1,11 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 /***************************************************************************
  *
  *
  * Copyright(c) 2015,2016 Intel Corporation.
  * Copyright(c) 2017 PHYTEC Messtechnik GmbH
+ * Copyright(c) 2018 Nordic Semiconductor ASA
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,8 +42,12 @@
  * This file contains useful constants and macros for the USB applications.
  */
 
-#ifndef USB_COMMON_H_
-#define USB_COMMON_H_
+#include <version.h>
+
+#ifndef ZEPHYR_INCLUDE_USB_USB_COMMON_H_
+#define ZEPHYR_INCLUDE_USB_USB_COMMON_H_
+
+#define BCD(x) ((((x) / 10) << 4) | ((x) % 10))
 
 /* Descriptor size in bytes */
 #define USB_DEVICE_DESC_SIZE		18
@@ -54,17 +61,23 @@
 #define USB_INTERFACE_ASSOC_DESC_SIZE	8
 
 /* Descriptor type */
-#define USB_DEVICE_DESC			0x01
-#define USB_CONFIGURATION_DESC		0x02
-#define USB_STRING_DESC			0x03
-#define USB_INTERFACE_DESC		0x04
-#define USB_ENDPOINT_DESC		0x05
-#define USB_DEVICE_QUAL_DESC		0x06
-#define USB_INTERFACE_ASSOC_DESC	0x0B
-#define USB_HID_DESC			0x21
-#define USB_HID_REPORT_DESC		0x22
-#define USB_DFU_FUNCTIONAL_DESC		0x21
-#define USB_ASSOCIATION_DESC		0x0B
+#define USB_DEVICE_DESC			0x01U
+#define USB_CONFIGURATION_DESC		0x02U
+#define USB_STRING_DESC			0x03U
+#define USB_INTERFACE_DESC		0x04U
+#define USB_ENDPOINT_DESC		0x05U
+#define USB_DEVICE_QUAL_DESC		0x06U
+#define USB_OTHER_SPEED			0x07U
+#define USB_INTERFACE_POWER		0x08U
+#define USB_INTERFACE_ASSOC_DESC	0x0BU
+#define USB_DEVICE_CAPABILITY_DESC	0x10U
+#define USB_HID_DESC			0x21U
+#define USB_HID_REPORT_DESC		0x22U
+#define USB_CS_INTERFACE_DESC		0x24U
+#define USB_CS_ENDPOINT_DESC		0x25U
+#define USB_DFU_FUNCTIONAL_DESC		0x21U
+#define USB_ASSOCIATION_DESC		0x0BU
+#define USB_BINARY_OBJECT_STORE_DESC	0x0FU
 
 /* Useful define */
 #define USB_1_1				0x0110
@@ -72,12 +85,11 @@
 /* Set USB version to 2.1 so that the host will request the BOS descriptor */
 #define USB_2_1				0x0210
 
-#define BCDDEVICE_RELNUM		0x0100
+#define BCDDEVICE_RELNUM		(BCD(KERNEL_VERSION_MAJOR) << 8 | \
+					BCD(KERNEL_VERSION_MINOR))
 
-/* 100mA max power, per 2mA units */
-/* USB 1.1 spec indicates 100mA(max) per unit load, up to 5 loads */
-#define MAX_LOW_POWER			0x32
-#define MAX_HIGH_POWER			0xFA
+/* Highest value of Frame Number in SOF packets. */
+#define USB_SOF_MAX			2047
 
 /* bmAttributes:
  * D7:Reserved, always 1,
@@ -85,9 +97,16 @@
  * D5:Remote Wakeup -> 0,
  * D4...0:Reserved -> 0
  */
-#define USB_CONFIGURATION_ATTRIBUTES	0xC0
+#define USB_CONFIGURATION_ATTRIBUTES_REMOTE_WAKEUP	BIT(5)
+#define USB_CONFIGURATION_ATTRIBUTES_SELF_POWERED	BIT(6)
+#define USB_CONFIGURATION_ATTRIBUTES BIT(7) \
+	| ((COND_CODE_1(CONFIG_USB_SELF_POWERED, \
+	   (USB_CONFIGURATION_ATTRIBUTES_SELF_POWERED), (0)))   \
+	| (COND_CODE_1(CONFIG_USB_DEVICE_REMOTE_WAKEUP,         \
+	   (USB_CONFIGURATION_ATTRIBUTES_REMOTE_WAKEUP), (0))))
 
 /* Classes */
+#define AUDIO_CLASS			0x01
 #define COMMUNICATION_DEVICE_CLASS	0x02
 #define COMMUNICATION_DEVICE_CLASS_DATA	0x0A
 #define HID_CLASS			0x03
@@ -95,11 +114,9 @@
 #define WIRELESS_DEVICE_CLASS		0xE0
 #define MISC_CLASS			0xEF
 #define CUSTOM_CLASS			0xFF
-#define DFU_CLASS			0xFE
+#define DFU_DEVICE_CLASS		0xFE
 
 /* Sub-classes */
-#define ACM_SUBCLASS			0x02
-#define CDC_ECM_SUBCLASS		0x06
 #define CDC_NCM_SUBCLASS		0x0d
 #define BOOT_INTERFACE_SUBCLASS		0x01
 #define SCSI_TRANSPARENT_SUBCLASS	0x06
@@ -123,74 +140,74 @@
 
 /** Standard Device Descriptor */
 struct usb_device_descriptor {
-	u8_t bLength;
-	u8_t bDescriptorType;
-	u16_t bcdUSB;
-	u8_t bDeviceClass;
-	u8_t bDeviceSubClass;
-	u8_t bDeviceProtocol;
-	u8_t bMaxPacketSize0;
-	u16_t idVendor;
-	u16_t idProduct;
-	u16_t bcdDevice;
-	u8_t iManufacturer;
-	u8_t iProduct;
-	u8_t iSerialNumber;
-	u8_t bNumConfigurations;
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint16_t bcdUSB;
+	uint8_t bDeviceClass;
+	uint8_t bDeviceSubClass;
+	uint8_t bDeviceProtocol;
+	uint8_t bMaxPacketSize0;
+	uint16_t idVendor;
+	uint16_t idProduct;
+	uint16_t bcdDevice;
+	uint8_t iManufacturer;
+	uint8_t iProduct;
+	uint8_t iSerialNumber;
+	uint8_t bNumConfigurations;
 } __packed;
 
-/** UNICODE String Descriptor */
+/** Unicode (UTF16LE) String Descriptor */
 struct usb_string_descriptor {
-	u8_t bLength;
-	u8_t bDescriptorType;
-	u16_t bString;
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint16_t bString;
 } __packed;
 
 /** Association Descriptor */
 struct usb_association_descriptor {
-	u8_t bLength;
-	u8_t bDescriptorType;
-	u8_t bFirstInterface;
-	u8_t bInterfaceCount;
-	u8_t bFunctionClass;
-	u8_t bFunctionSubClass;
-	u8_t bFunctionProtocol;
-	u8_t iFunction;
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint8_t bFirstInterface;
+	uint8_t bInterfaceCount;
+	uint8_t bFunctionClass;
+	uint8_t bFunctionSubClass;
+	uint8_t bFunctionProtocol;
+	uint8_t iFunction;
 } __packed;
 
 /** Standard Configuration Descriptor */
 struct usb_cfg_descriptor {
-	u8_t bLength;
-	u8_t bDescriptorType;
-	u16_t wTotalLength;
-	u8_t bNumInterfaces;
-	u8_t bConfigurationValue;
-	u8_t iConfiguration;
-	u8_t bmAttributes;
-	u8_t bMaxPower;
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint16_t wTotalLength;
+	uint8_t bNumInterfaces;
+	uint8_t bConfigurationValue;
+	uint8_t iConfiguration;
+	uint8_t bmAttributes;
+	uint8_t bMaxPower;
 } __packed;
 
 /** Standard Interface Descriptor */
 struct usb_if_descriptor {
-	u8_t bLength;
-	u8_t bDescriptorType;
-	u8_t bInterfaceNumber;
-	u8_t bAlternateSetting;
-	u8_t bNumEndpoints;
-	u8_t bInterfaceClass;
-	u8_t bInterfaceSubClass;
-	u8_t bInterfaceProtocol;
-	u8_t iInterface;
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint8_t bInterfaceNumber;
+	uint8_t bAlternateSetting;
+	uint8_t bNumEndpoints;
+	uint8_t bInterfaceClass;
+	uint8_t bInterfaceSubClass;
+	uint8_t bInterfaceProtocol;
+	uint8_t iInterface;
 } __packed;
 
 /** Standard Endpoint Descriptor */
 struct usb_ep_descriptor {
-	u8_t bLength;
-	u8_t bDescriptorType;
-	u8_t bEndpointAddress;
-	u8_t bmAttributes;
-	u16_t wMaxPacketSize;
-	u8_t bInterval;
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint8_t bEndpointAddress;
+	uint8_t bmAttributes;
+	uint16_t wMaxPacketSize;
+	uint8_t bInterval;
 } __packed;
 
-#endif /* USB_COMMON_H_ */
+#endif /* ZEPHYR_INCLUDE_USB_USB_COMMON_H_ */

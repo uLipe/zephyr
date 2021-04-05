@@ -1,12 +1,8 @@
-# Kconfig - STM32F3DISCOVERY board configuration
-#
+# STM32F3DISCOVERY board configuration
+
 # Copyright (c) 2017 I-SENSE group of ICCS
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 config BOARD_STM32F3_DISCO
 	bool "STM32F3DISCOVERY Development Board"
-	select I2C_1 if I2C
-	select I2C_2 if I2C
 	depends on SOC_STM32F303XC

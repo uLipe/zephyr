@@ -1,5 +1,6 @@
+common:
+  depends_on: ieee802154
 tests:
-  - test:
-      min_ram: 16
-      platform_exclude: qemu_xtensa
-      tags: net
+  net.ieee802154.l2:
+    min_ram: 16
+    tags: net ieee802154 l2

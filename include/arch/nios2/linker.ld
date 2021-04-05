@@ -11,9 +11,6 @@
  * Linker script for the Nios II platform
  */
 
-#define _LINKER
-#define _ASMLANGUAGE
-
 #include <autoconf.h>
 #include <linker/sections.h>
 
@@ -25,7 +22,7 @@
 #define _RESET_SECTION_NAME reset
 
 /* This linker script requires the following macros to be defined in the
- * SOC-specfic linker script. All of these values can be found defined
+ * SOC-specific linker script. All of these values can be found defined
  * in system.h for CPU configurations that can generate a HAL.
  *
  * _RESET_VECTOR     CPU entry point at boot
@@ -78,8 +75,27 @@ MEMORY
 }
 #endif
 
+ENTRY(CONFIG_KERNEL_ENTRY)
+
 SECTIONS
     {
+
+#include <linker/rel-sections.ld>
+
+    /*
+     * .plt and .iplt are here according to
+     * 'nios2-zephyr-elf-ld --verbose', before text section.
+     */
+    SECTION_PROLOGUE(.plt,,)
+        {
+        *(.plt)
+        }
+
+    SECTION_PROLOGUE(.iplt,,)
+        {
+        *(.iplt)
+        }
+
     GROUP_START(ROMABLE_REGION)
     _image_rom_start = _ROM_ADDR;
 
@@ -104,11 +120,10 @@ SECTIONS
         . = ALT_CPU_RESET_ADDR;
 
         _image_text_start = .;
+
         *(.text)
         *(".text.*")
         *(.gnu.linkonce.t.*)
-        KEEP(*(.openocd_dbg))
-        KEEP(*(".openocd_dbg.*"))
         } GROUP_LINK_IN(ROMABLE_REGION)
 
     _image_text_end = .;
@@ -122,16 +137,21 @@ SECTIONS
 
     SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)
         {
+        . = ALIGN(4);
+
         *(.rodata)
         *(".rodata.*")
         *(.gnu.linkonce.r.*)
 
-#ifdef CONFIG_CUSTOM_RODATA_LD
-/* Located in project source directory */
-#include <custom-rodata.ld>
-#endif
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-rodata.ld>
 
+        . = ALIGN(4);
         } GROUP_LINK_IN(ROMABLE_REGION)
+
+#include <linker/cplusplus-rom.ld>
 
     _image_rom_end = .;
     __data_rom_start = ALIGN(4);    /* XIP imaged DATA ROM start addr */
@@ -166,16 +186,13 @@ SECTIONS
 
     SECTION_DATA_PROLOGUE(_DATA_SECTION_NAME,,)
         {
-#ifdef CONFIG_GEN_SW_ISR_TABLE
-	KEEP(*(SW_ISR_TABLE))
-#endif
         *(.data)
         *(".data.*")
 
-#ifdef CONFIG_CUSTOM_RWDATA_LD
-/* Located in project source directory */
-#include <custom-rwdata.ld>
-#endif
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-rwdata.ld>
 
         /* the Nios2 architecture only has 16-bit signed immediate offsets in
          * the instructions, so accessing a general address requires typically
@@ -196,6 +213,11 @@ SECTIONS
 
         *(.sdata .sdata.* .gnu.linkonce.s.*)
         *(.sdata2 .sdata2.* .gnu.linkonce.s2.*)
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-ram-sections.ld>
 
         } GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
 
@@ -221,15 +243,9 @@ SECTIONS
         __bss_end = ALIGN(4);
         } GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
 
-    SECTION_PROLOGUE(_NOINIT_SECTION_NAME,(NOLOAD),)
-        {
-        /*
-         * This section is used for non-initialized objects that
-         * will not be cleared during the boot process.
-         */
-        *(.noinit)
-        *(".noinit.*")
-        } GROUP_LINK_IN(RAMABLE_REGION)
+#include <linker/common-noinit.ld>
+
+#include <linker/cplusplus-ram.ld>
 
     /* Define linker symbols */
     _image_ram_end = .;
@@ -237,14 +253,11 @@ SECTIONS
 
     GROUP_END(RAMABLE_REGION)
 
-#ifdef CONFIG_CUSTOM_SECTIONS_LD
-/* Located in project source directory */
-#include <custom-sections.ld>
-#endif
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-sections.ld>
 
-#ifdef CONFIG_GEN_ISR_TABLES
-#include <linker/intlist.ld>
-#endif
+#include <linker/debug-sections.ld>
 
     }
-

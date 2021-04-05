@@ -16,10 +16,21 @@ struct bt_pub_key_cb {
 	 *
 	 *  @param key The local public key, or NULL in case of no key.
 	 */
-	void (*func)(const u8_t key[64]);
+	void (*func)(const uint8_t key[64]);
 
 	struct bt_pub_key_cb *_next;
 };
+
+/*  @brief Check if public key is equal to the debug public key.
+ *
+ *  Compare the Public key to the Bluetooth specification defined debug public
+ *  key.
+ *
+ *  @param pub_key The public key to compare.
+ *
+ *  @return True if the public key is the debug public key.
+ */
+bool bt_pub_key_is_debug(uint8_t *pub_key);
 
 /*  @brief Generate a new Public Key.
  *
@@ -40,7 +51,7 @@ int bt_pub_key_gen(struct bt_pub_key_cb *cb);
  *
  *  @return Current key, or NULL if not available.
  */
-const u8_t *bt_pub_key_get(void);
+const uint8_t *bt_pub_key_get(void);
 
 /*  @typedef bt_dh_key_cb_t
  *  @brief Callback type for DH Key calculation.
@@ -49,7 +60,7 @@ const u8_t *bt_pub_key_get(void);
  *
  *  @param key The DH Key, or NULL in case of failure.
  */
-typedef void (*bt_dh_key_cb_t)(const u8_t key[32]);
+typedef void (*bt_dh_key_cb_t)(const uint8_t key[32]);
 
 /*  @brief Calculate a DH Key from a remote Public Key.
  *
@@ -60,4 +71,4 @@ typedef void (*bt_dh_key_cb_t)(const u8_t key[32]);
  *
  *  @return Zero on success or negative error code otherwise
  */
-int bt_dh_key_gen(const u8_t remote_pk[64], bt_dh_key_cb_t cb);
+int bt_dh_key_gen(const uint8_t remote_pk[64], bt_dh_key_cb_t cb);

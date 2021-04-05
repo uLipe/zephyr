@@ -15,8 +15,9 @@
 
 #include <zephyr/types.h>
 
-#include <misc/util.h>
+#include <sys/util.h>
 
+#include <net/net_context.h>
 #include <net/net_core.h>
 #include <net/net_ip.h>
 #include <net/net_pkt.h>
@@ -36,6 +37,8 @@ struct net_conn_handle;
  */
 typedef enum net_verdict (*net_conn_cb_t)(struct net_conn *conn,
 					  struct net_pkt *pkt,
+					  union net_ip_header *ip_hdr,
+					  union net_proto_header *proto_hdr,
 					  void *user_data);
 
 /**
@@ -45,6 +48,9 @@ typedef enum net_verdict (*net_conn_cb_t)(struct net_conn *conn,
  *
  */
 struct net_conn {
+	/** Internal slist node */
+	sys_snode_t node;
+
 	/** Remote IP address */
 	struct sockaddr remote_addr;
 
@@ -54,51 +60,76 @@ struct net_conn {
 	/** Callback to be called when matching UDP packet is received */
 	net_conn_cb_t cb;
 
+	/** A pointer to the net_context corresponding to the connection.
+	 *  Can be NULL if no net_context is associated.
+	 */
+	struct net_context *context;
+
 	/** Possible user to pass to the callback */
 	void *user_data;
 
 	/** Connection protocol */
-	u8_t proto;
+	uint16_t proto;
+
+	/** Protocol family */
+	uint8_t family;
 
 	/** Flags for the connection */
-	u8_t flags;
-
-	/** Rank of this connection. Higher rank means more specific
-	 * connection.
-	 * Value is constructed like this:
-	 *   bit 0  local port, bit set if specific value
-	 *   bit 1  remote port, bit set if specific value
-	 *   bit 2  local address, bit set if unspecified address
-	 *   bit 3  remote address, bit set if unspecified address
-	 *   bit 4  local address, bit set if specific address
-	 *   bit 5  remote address, bit set if specific address
-	 */
-	u8_t rank;
+	uint8_t flags;
 };
 
 /**
  * @brief Register a callback to be called when UDP/TCP packet
  * is received corresponding to received packet.
  *
- * @param proto Protocol for the connection (UDP or TCP)
+ * @param proto Protocol for the connection (UDP or TCP or SOCK_RAW)
+ * @param family Protocol family (AF_INET or AF_INET6 or AF_PACKET)
  * @param remote_addr Remote address of the connection end point.
  * @param local_addr Local address of the connection end point.
  * @param remote_port Remote port of the connection end point.
  * @param local_port Local port of the connection end point.
  * @param cb Callback to be called
+ * @param context net_context structure related to the connection.
  * @param user_data User data supplied by caller.
  * @param handle Connection handle that can be used when unregistering
  *
  * @return Return 0 if the registration succeed, <0 otherwise.
  */
-int net_conn_register(enum net_ip_protocol proto,
+#if defined(CONFIG_NET_NATIVE)
+int net_conn_register(uint16_t proto, uint8_t family,
 		      const struct sockaddr *remote_addr,
 		      const struct sockaddr *local_addr,
-		      u16_t remote_port,
-		      u16_t local_port,
+		      uint16_t remote_port,
+		      uint16_t local_port,
+		      struct net_context *context,
 		      net_conn_cb_t cb,
 		      void *user_data,
 		      struct net_conn_handle **handle);
+#else
+static inline int net_conn_register(uint16_t proto, uint8_t family,
+				    const struct sockaddr *remote_addr,
+				    const struct sockaddr *local_addr,
+				    uint16_t remote_port,
+				    uint16_t local_port,
+				    struct net_context *context,
+				    net_conn_cb_t cb,
+				    void *user_data,
+				    struct net_conn_handle **handle)
+{
+	ARG_UNUSED(proto);
+	ARG_UNUSED(family);
+	ARG_UNUSED(remote_addr);
+	ARG_UNUSED(local_addr);
+	ARG_UNUSED(remote_port);
+	ARG_UNUSED(local_port);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(context);
+	ARG_UNUSED(user_data);
+	ARG_UNUSED(handle);
+
+	return -ENOTSUP;
+}
+#endif
 
 /**
  * @brief Unregister connection handler.
@@ -107,7 +138,16 @@ int net_conn_register(enum net_ip_protocol proto,
  *
  * @return Return 0 if the unregistration succeed, <0 otherwise.
  */
+#if defined(CONFIG_NET_NATIVE)
 int net_conn_unregister(struct net_conn_handle *handle);
+#else
+static inline int net_conn_unregister(struct net_conn_handle *handle)
+{
+	ARG_UNUSED(handle);
+
+	return -ENOTSUP;
+}
+#endif
 
 /**
  * @brief Change the callback and user_data for a registered connection
@@ -126,22 +166,28 @@ int net_conn_change_callback(struct net_conn_handle *handle,
  * @brief Called by net_core.c when a network packet is received.
  *
  * @param pkt Network packet holding received data
+ * @param proto Protocol for the connection
  *
  * @return NET_OK if the packet was consumed, NET_DROP if
  * the packet parsing failed and the caller should handle
  * the received packet. If corresponding IP protocol support is
  * disabled, the function will always return NET_DROP.
  */
-#if defined(CONFIG_NET_UDP) || defined(CONFIG_NET_TCP)
-enum net_verdict net_conn_input(enum net_ip_protocol proto,
-				struct net_pkt *pkt);
+#if defined(CONFIG_NET_UDP) || defined(CONFIG_NET_TCP) || \
+	defined(CONFIG_NET_SOCKETS_PACKET) || defined(CONFIG_NET_SOCKETS_CAN)
+enum net_verdict net_conn_input(struct net_pkt *pkt,
+				union net_ip_header *ip_hdr,
+				uint8_t proto,
+				union net_proto_header *proto_hdr);
 #else
-static inline enum net_verdict net_conn_input(enum net_ip_protocol proto,
-					      struct net_pkt *pkt)
+static inline enum net_verdict net_conn_input(struct net_pkt *pkt,
+					      union net_ip_header *ip_hdr,
+					      uint8_t proto,
+					      union net_proto_header *proto_hdr)
 {
 	return NET_DROP;
 }
-#endif /* CONFIG_NET_UDP || CONFIG_NET_TCP */
+#endif /* CONFIG_NET_UDP || CONFIG_NET_TCP  || CONFIG_NET_SOCKETS_PACKET */
 
 /**
  * @typedef net_conn_foreach_cb_t
@@ -162,7 +208,11 @@ typedef void (*net_conn_foreach_cb_t)(struct net_conn *conn, void *user_data);
  */
 void net_conn_foreach(net_conn_foreach_cb_t cb, void *user_data);
 
+#if defined(CONFIG_NET_NATIVE)
 void net_conn_init(void);
+#else
+#define net_conn_init(...)
+#endif
 
 #ifdef __cplusplus
 }

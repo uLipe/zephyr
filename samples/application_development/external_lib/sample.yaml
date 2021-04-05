@@ -1,8 +1,14 @@
 sample:
-  description: TBD
-  name: TBD
+  name: External Library
 tests:
-  - test:
-      build_only: true
-      platform_whitelist: qemu_x86
-      tags: appdev
+  sample.app_dev.external_lib:
+    integration_platforms:
+      - native_posix
+    platform_exclude: intel_adsp_cavs15
+    tags: external
+    harness: console
+    harness_config:
+      type: multi_line
+      regex:
+        - "Hello World!"
+        - "mylib says: Hello World!"

@@ -11,16 +11,16 @@
  * Data types for a software-managed ISR table, with a parameter per-ISR.
  */
 
-#ifndef _SW_ISR_TABLE__H_
-#define _SW_ISR_TABLE__H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef ZEPHYR_INCLUDE_SW_ISR_TABLE_H_
+#define ZEPHYR_INCLUDE_SW_ISR_TABLE_H_
 
 #if !defined(_ASMLANGUAGE)
 #include <zephyr/types.h>
 #include <toolchain.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * Note the order: arg first, then ISR. This allows a table entry to be
@@ -28,8 +28,8 @@ extern "C" {
  * on ARM Cortex-M (Thumb2).
  */
 struct _isr_table_entry {
-	void *arg;
-	void (*isr)(void *);
+	const void *arg;
+	void (*isr)(const void *);
 };
 
 /* The software ISR table itself, an array of these structures indexed by the
@@ -46,35 +46,41 @@ extern struct _isr_table_entry _sw_isr_table[];
  */
 struct _isr_list {
 	/** IRQ line number */
-	s32_t irq;
+	int32_t irq;
 	/** Flags for this IRQ, see ISR_FLAG_* definitions */
-	s32_t flags;
+	int32_t flags;
 	/** ISR to call */
 	void *func;
 	/** Parameter for non-direct IRQs */
-	void *param;
+	const void *param;
 };
 
 /** This interrupt gets put directly in the vector table */
-#define ISR_FLAG_DIRECT (1 << 0)
+#define ISR_FLAG_DIRECT BIT(0)
 
-#define _MK_ISR_NAME(x, y) __isr_ ## x ## _irq_ ## y
+#define _MK_ISR_NAME(x, y) __MK_ISR_NAME(x, y)
+#define __MK_ISR_NAME(x, y) __isr_ ## x ## _irq_ ## y
 
 /* Create an instance of struct _isr_list which gets put in the .intList
  * section. This gets consumed by gen_isr_tables.py which creates the vector
  * and/or SW ISR tables.
  */
-#define _ISR_DECLARE(irq, flags, func, param) \
-	static struct _isr_list _GENERIC_SECTION(.intList) __used \
-		_MK_ISR_NAME(func, __COUNTER__) = \
-			{irq, flags, &func, (void *)param}
+#define Z_ISR_DECLARE(irq, flags, func, param) \
+	static Z_DECL_ALIGN(struct _isr_list) Z_GENERIC_SECTION(.intList) \
+		__used _MK_ISR_NAME(func, __COUNTER__) = \
+			{irq, flags, (void *)&func, (const void *)param}
 
 #define IRQ_TABLE_SIZE (CONFIG_NUM_IRQS - CONFIG_GEN_IRQ_START_VECTOR)
 
-#endif /* _ASMLANGUAGE */
+#ifdef CONFIG_DYNAMIC_INTERRUPTS
+void z_isr_install(unsigned int irq, void (*routine)(const void *),
+		   const void *param);
+#endif
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _SW_ISR_TABLE__H_ */
+#endif /* _ASMLANGUAGE */
+
+#endif /* ZEPHYR_INCLUDE_SW_ISR_TABLE_H_ */

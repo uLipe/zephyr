@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_NRF52_BSIM
+
+config BUILD_OUTPUT_BIN
+	default n
+
+config BUILD_OUTPUT_EXE
+	default y
+
+config OUTPUT_PRINT_MEMORY_USAGE
+	default n
+
+config BOARD
+	default "nrf52_bsim"
+
+config BT_CTLR
+	default y
+	depends on BT
+
+if LOG
+
+# This board can reuse the native_posix logging backend
+config LOG_BACKEND_NATIVE_POSIX
+	default y if !SERIAL
+
+endif # LOG
+
+endif # BOARD_NRF52_BSIM

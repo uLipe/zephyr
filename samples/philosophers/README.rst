@@ -45,6 +45,7 @@ on QEMU as follows:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/philosophers
+   :host-os: unix
    :board: qemu_x86
    :goals: run
    :compact:
@@ -61,4 +62,4 @@ Sample Output
    Philosopher 4 [C:-1]  THINKING [ 2200 ms ]
    Philosopher 5 [C:-2]  THINKING [ 1700 ms ]
 
-
+Exit QEMU by pressing :kbd:`CTRL+A` :kbd:`x`.

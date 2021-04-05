@@ -6,19 +6,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _IPM_CONSOLE_H_
-#define _IPM_CONSOLE_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_CONSOLE_IPM_CONSOLE_H_
+#define ZEPHYR_INCLUDE_DRIVERS_CONSOLE_IPM_CONSOLE_H_
 
 #include <kernel.h>
 #include <device.h>
-#include <misc/ring_buffer.h>
+#include <sys/ring_buffer.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define IPM_CONSOLE_STDOUT	(1 << 0)
-#define IPM_CONSOLE_PRINTK	(1 << 1)
+#define IPM_CONSOLE_STDOUT	(BIT(0))
+#define IPM_CONSOLE_PRINTK	(BIT(1))
 
 /*
  * Good way to determine these numbers other than trial-and-error?
@@ -41,7 +41,7 @@ struct ipm_console_receiver_config_info {
 	 * Ring buffer data area for stashing characters from the interrupt
 	 * callback
 	 */
-	u32_t *ring_buf_data;
+	uint32_t *ring_buf_data;
 
 	/** Size of ring_buf_data in 32-bit chunks */
 	unsigned int rb_size32;
@@ -71,7 +71,7 @@ struct ipm_console_receiver_runtime_data {
 	struct k_sem sem;
 
 	/** pointer to the bound low-level IPM device */
-	struct device *ipm_device;
+	const struct device *ipm_device;
 
 	/** Indicator that the channel is temporarily disabled due to
 	 * full buffer
@@ -94,15 +94,15 @@ struct ipm_console_sender_config_info {
 };
 
 #if CONFIG_IPM_CONSOLE_RECEIVER
-int ipm_console_receiver_init(struct device *d);
+int ipm_console_receiver_init(const struct device *d);
 #endif
 
 #if CONFIG_IPM_CONSOLE_SENDER
-int ipm_console_sender_init(struct device *d);
+int ipm_console_sender_init(const struct device *d);
 #endif
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _IPM_CONSOLE_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_CONSOLE_IPM_CONSOLE_H_ */

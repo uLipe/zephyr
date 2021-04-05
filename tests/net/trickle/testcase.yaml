@@ -1,4 +1,6 @@
+common:
+  depends_on: netif
+  tags: net trickle
 tests:
-  - test:
-      min_ram: 12
-      tags: net
+  net.trickle:
+    min_ram: 12

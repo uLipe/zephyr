@@ -4,14 +4,10 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
-#ifndef _CNTR_H_
-#define _CNTR_H_
+#include <stdint.h>
 
 void cntr_init(void);
-u32_t cntr_start(void);
-u32_t cntr_stop(void);
-u32_t cntr_cnt_get(void);
-void cntr_cmp_set(u8_t cmp, u32_t value);
-
-#endif /* _CNTR_H_ */
+uint32_t cntr_start(void);
+uint32_t cntr_stop(void);
+uint32_t cntr_cnt_get(void);
+void cntr_cmp_set(uint8_t cmp, uint32_t value);

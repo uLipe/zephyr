@@ -1,7 +1,15 @@
 identifier: stm32f4_disco
-name: STM32F407G-DISC1
+name: ST STM32F4 Discovery
 type: mcu
 arch: arm
 toolchain:
   - zephyr
-  - gccarmemb
+  - gnuarmemb
+  - xtools
+ram: 128
+flash: 1024
+supported:
+  - can
+  - pwm
+  - counter
+  - usb

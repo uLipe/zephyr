@@ -6,15 +6,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _SENSOR_ISL29035_H_
-#define _SENSOR_ISL29035_H_
+#ifndef ZEPHYR_DRIVERS_SENSOR_ISL29035_ISL29035_H_
+#define ZEPHYR_DRIVERS_SENSOR_ISL29035_ISL29035_H_
 
 #include <device.h>
 #include <kernel.h>
-#include <sensor.h>
-#include <gpio.h>
+#include <drivers/sensor.h>
+#include <drivers/gpio.h>
 
-#define ISL29035_I2C_ADDRESS		0x44
+#define ISL29035_I2C_ADDRESS		DT_INST_REG_ADDR(0)
 
 #define ISL29035_COMMAND_I_REG		0x00
 #define ISL29035_OPMODE_SHIFT		5
@@ -111,42 +111,39 @@
 	(ISL29035_INT_PRST_IDX << ISL29035_INT_PRST_SHIFT)
 
 struct isl29035_driver_data {
-	struct device *i2c;
-	u16_t data_sample;
+	const struct device *i2c;
+	uint16_t data_sample;
 
 #if CONFIG_ISL29035_TRIGGER
-	struct device *gpio;
+	const struct device *dev;
+	const struct device *gpio;
 	struct gpio_callback gpio_cb;
 
 	struct sensor_trigger th_trigger;
 	sensor_trigger_handler_t th_handler;
 
 #if defined(CONFIG_ISL29035_TRIGGER_OWN_THREAD)
-	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_ISL29035_THREAD_STACK_SIZE);
+	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_ISL29035_THREAD_STACK_SIZE);
 	struct k_thread thread;
 	struct k_sem gpio_sem;
 #elif defined(CONFIG_ISL29035_TRIGGER_GLOBAL_THREAD)
 	struct k_work work;
-	struct device *dev;
 #endif
 
 #endif /* CONFIG_ISL29035_TRIGGER */
 };
 
 #ifdef CONFIG_ISL29035_TRIGGER
-int isl29035_attr_set(struct device *dev,
+int isl29035_attr_set(const struct device *dev,
 		      enum sensor_channel chan,
 		      enum sensor_attribute attr,
 		      const struct sensor_value *val);
 
-int isl29035_trigger_set(struct device *dev,
+int isl29035_trigger_set(const struct device *dev,
 			 const struct sensor_trigger *trig,
 			 sensor_trigger_handler_t handler);
 
-int isl29035_init_interrupt(struct device *dev);
+int isl29035_init_interrupt(const struct device *dev);
 #endif
 
-#define SYS_LOG_DOMAIN "ISL29035"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* _SENSOR_ISL29035_H_ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_ISL29035_ISL29035_H_ */

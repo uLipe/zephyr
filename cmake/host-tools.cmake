@@ -1,37 +1,48 @@
-include($ENV{ZEPHYR_BASE}/cmake/host-tools-zephyr.cmake)
+# SPDX-License-Identifier: Apache-2.0
 
-# Search for the must-have program dtc on PATH and in
-# TOOLCHAIN_HOME. Usually DTC will be provided by an SDK, but for
-# SDK-less projects like gccarmemb, it is up to the user to install
-# dtc.
+include(${ZEPHYR_BASE}/cmake/toolchain/zephyr/host-tools.cmake)
+
+# dtc is an optional dependency
 find_program(
   DTC
   dtc
   )
-if(${DTC} STREQUAL DTC-NOTFOUND)
-  message(FATAL_ERROR "Unable to find dtc")
+
+if(DTC)
+  # Parse the 'dtc --version' output to find the installed version.
+  set(MIN_DTC_VERSION 1.4.6)
+  execute_process(
+    COMMAND
+    ${DTC} --version
+    OUTPUT_VARIABLE dtc_version_output
+    ERROR_VARIABLE  dtc_error_output
+    RESULT_VARIABLE dtc_status
+    )
+
+  if(${dtc_status} EQUAL 0)
+    string(REGEX MATCH "Version: DTC ([0-9]+[.][0-9]+[.][0-9]+).*" out_var ${dtc_version_output})
+
+    # Since it is optional, an outdated version is not an error. If an
+    # outdated version is discovered, print a warning and proceed as if
+    # DTC were not installed.
+    if(${CMAKE_MATCH_1} VERSION_GREATER ${MIN_DTC_VERSION})
+      message(STATUS "Found dtc: ${DTC} (found suitable version \"${CMAKE_MATCH_1}\", minimum required is \"${MIN_DTC_VERSION}\")")
+    else()
+      message(WARNING
+        "Could NOT find dtc: Found unsuitable version \"${CMAKE_MATCH_1}\", but required is at least \"${MIN_DTC_VERSION}\" (found ${DTC}). Optional devicetree error checking with dtc will not be performed.")
+      set(DTC DTC-NOTFOUND)
+    endif()
+  else()
+    message(WARNING
+      "Could NOT find working dtc: Found dtc (${DTC}), but failed to load with:\n ${dtc_error_output}")
+    set(DTC DTC-NOTFOUND)
+  endif()
 endif()
 
-find_program(
-  KCONFIG_CONF
-  conf
-  )
-if(${KCONFIG_CONF} STREQUAL KCONFIG_CONF-NOTFOUND)
-  message(FATAL_ERROR "Unable to find the Kconfig program 'conf'")
-endif()
-
+# gperf is an optional dependency
 find_program(
   GPERF
   gperf
-  )
-if(${GPERF} STREQUAL GPERF-NOTFOUND)
-  message(FATAL_ERROR "Unable to find gperf")
-endif()
-
-# mconf is an optional dependency
-find_program(
-  KCONFIG_MCONF
-  mconf
   )
 
 # openocd is an optional dependency
@@ -40,15 +51,18 @@ find_program(
   openocd
   )
 
-# qemu is an optional dependency
-if("${ARCH}" STREQUAL "x86")
-  set(QEMU_binary_suffix i386)
-else()
-  set(QEMU_binary_suffix ${ARCH})
-endif()
+# bossac is an optional dependency
 find_program(
-  QEMU
-  qemu-system-${QEMU_binary_suffix}
+  BOSSAC
+  bossac
+  )
+
+# imgtool is an optional dependency (the build may also fall back to
+# scripts/imgtool.py in the mcuboot repository if that's present in
+# some cases)
+find_program(
+  IMGTOOL
+  imgtool
   )
 
 # TODO: Should we instead find one qemu binary for each ARCH?

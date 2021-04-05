@@ -7,7 +7,7 @@
  * Control arrives here at _start from the reset vector or from crt0-app.S.
  */
 
-#include <xtensa_rtos.h>
+#include <xtensa/coreasm.h>
 
 /* Exports */
 .global _start
@@ -17,12 +17,13 @@
  *   __stack			from linker script (see LSP Ref Manual)
  *   _bss_table_start		from linker script (see LSP Ref Manual)
  *   _bss_table_end		from linker script (see LSP Ref Manual)
- *   _Cstart		Entry point into Zephyr C domain
+ *   z_cstart		Entry point into Zephyr C domain
  *   __stack		from linker script (see LSP Ref Manual)
  */
 
 .global __start
-.type	_Cstart, @function
+.type	z_cstart, @function
+.type	z_mp_entry, @function
 
 
 /* Macros to abstract away ABI differences */
@@ -49,16 +50,14 @@
 	.align 4
 
 _start:
-__start:
 	/*
 	 *  _start is typically NOT at the beginning of the text segment --
-	 *  it is always called from either the reset vector or other code
-	 *  that does equivalent initialization (such as crt0-app.S).
+	 *  it is always called from either the reset vector (__start) or other
+	 *  code that does equivalent initialization (such as crt0-app.S).
 	 *
 	 *  Assumptions on entry to _start:
 	 *	- low (level-one) and medium priority interrupts are disabled
-	 *	  via PS.INTLEVEL and/or INTENABLE (PS.INTLEVEL is expected to
-	 *	  be zeroed, to potentially enable them, before calling main)
+	 *	  via PS.INTLEVEL and/or INTENABLE
 	 *	- C calling context not initialized:
 	 *	  - PS not initialized
 	 *	  - SP not initialized
@@ -89,16 +88,26 @@ __start:
 
 	/*
 	 *  Now that sp (a1) is set, we can set PS as per the application (user
-	 *  vector mode, enable interrupts, enable window exceptions if
+	 *  vector mode, disable interrupts, enable window exceptions if
 	 *  applicable).
 	 */
 #if XCHAL_HAVE_EXCEPTIONS
 # ifdef __XTENSA_CALL0_ABI__
-	/* PS.WOE = 0, PS.UM = 1, PS.EXCM = 0, PS.INTLEVEL = 0 */
-	movi	a3, PS_UM
+	/*
+	 * PS.WOE = 0
+	 * PS.UM = 1
+	 * PS.EXCM = 0
+	 * PS.INTLEVEL = XCHAL_EXCM_LEVEL
+	 */
+	movi	a3, PS_UM|PS_INTLEVEL(XCHAL_EXCM_LEVEL)
 # else
-	/* PS.WOE = 1, PS.UM = 1, PS.EXCM = 0, PS.INTLEVEL = 0 */
-	movi	a3, PS_UM|PS_WOE
+	/*
+	 * PS.WOE = 1
+	 * PS.UM = 1
+	 * PS.EXCM = 0
+	 * PS.INTLEVEL = XCHAL_EXCM_LEVEL
+	 */
+	movi	a3, PS_UM|PS_WOE|PS_INTLEVEL(XCHAL_EXCM_LEVEL)
 # endif
 	wsr	a3, PS
 	rsync
@@ -138,6 +147,7 @@ __start:
 	/* Clear a0 again as possible CALLX to __memmap_init changed it. */
 	movi	a0, 0
 # endif
+
 	/*
 	 *  Clear the BSS (uninitialized data) segments.
 	 *  This code supports multiple zeroed sections (*.bss).
@@ -180,7 +190,6 @@ __start:
 #endif /* !XCHAL_HAVE_BOOTLOADER */
 
 	/* Enter C domain, never returns from here */
-	CALL	_Cstart
+	CALL	z_cstart
 
 	.size	_start, . - _start
-

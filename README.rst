@@ -1,12 +1,16 @@
-Zephyr Project
-##############
-
 .. raw:: html
+
+   <a href="https://www.zephyrproject.org">
+     <p align="center">
+       <img src="doc/images/Zephyr-Project.png">
+     </p>
+   </a>
 
    <a href="https://bestpractices.coreinfrastructure.org/projects/74"><img
    src="https://bestpractices.coreinfrastructure.org/projects/74/badge"></a>
+   <a href="https://buildkite.com/zephyr/zephyr">
    <img
-   src="https://api.shippable.com/projects/58ffb2b8baa5e307002e1d79/badge?branch=master">
+   src="https://badge.buildkite.com/f5bd0dc88306cee17c9b38e78d11bb74a6291e3f40e7d13f31.svg?branch=master"></a>
 
 
 The Zephyr Project is a scalable real-time operating system (RTOS) supporting
@@ -18,90 +22,66 @@ resource-constrained systems: from simple embedded environmental sensors and
 LED wearables to sophisticated smart watches and IoT wireless gateways.
 
 The Zephyr kernel supports multiple architectures, including ARM Cortex-M,
-Intel x86, ARC, NIOS II, Tensilica Xtensa, and RISC V, and a large number of
+Intel x86, ARC, Nios II, Tensilica Xtensa, and RISC-V, and a large number of
 `supported boards`_.
 
 .. below included in doc/introduction/introduction.rst
 
 .. start_include_here
 
+Getting Started
+***************
+
+Welcome to Zephyr! See the `Introduction to Zephyr`_ for a high-level overview,
+and the documentation's `Getting Started Guide`_ to start developing.
+
 Community Support
 *****************
 
-The Zephyr Project Developer Community includes developers from member
-organizations and the general community all joining in the development of
-software within the Zephyr Project. Members contribute and discuss ideas,
-submit bugs and bug fixes, and provide training. They also help those in need
-through the community's forums such as mailing lists and IRC channels. Anyone
-can join the developer community and the community is always willing to help
-its members and the User Community to get the most out of the Zephyr Project.
+Community support is provided via mailing lists and Slack; see the Resources
+below for details.
 
-Welcome to the Zephyr community!
+.. _project-resources:
 
 Resources
 *********
 
-Here's a quick summary of resources to find your way around the Zephyr Project
-support systems:
+Here's a quick summary of resources to help you find your way around:
 
-* **Zephyr Project Website**: The https://zephyrproject.org website is the
-  central source of information about the Zephyr Project. On this site, you'll
-  find background and current information about the project as well as all the
-  relevant links to project material.  For a quick start, refer to the
-  `Zephyr Introduction`_ and `Getting Started Guide`_.
+* **Help**: `Asking for Help Tips`_
+* **Documentation**: http://docs.zephyrproject.org (`Getting Started Guide`_)
+* **Source Code**: https://github.com/zephyrproject-rtos/zephyr is the main
+  repository; https://elixir.bootlin.com/zephyr/latest/source contains a
+  searchable index
+* **Releases**: https://github.com/zephyrproject-rtos/zephyr/releases
+* **Samples and example code**: see `Sample and Demo Code Examples`_
+* **Mailing Lists**: users@lists.zephyrproject.org and
+  devel@lists.zephyrproject.org are the main user and developer mailing lists,
+  respectively. You can join the developer's list and search its archives at
+  `Zephyr Development mailing list`_. The other `Zephyr mailing list
+  subgroups`_ have their own archives and sign-up pages.
+* **Nightly CI Build Status**: https://lists.zephyrproject.org/g/builds
+  The builds@lists.zephyrproject.org mailing list archives the CI
+  (buildkite) nightly build results.
+* **Chat**: Zephyr's Slack workspace is https://zephyrproject.slack.com.  Use
+  this `Slack Invite`_ to register.
+* **Contributing**: see the `Contribution Guide`_
+* **Wiki**: `Zephyr GitHub wiki`_
+* **Issues**: https://github.com/zephyrproject-rtos/zephyr/issues
+* **Security Issues**: Email vulnerabilities@zephyrproject.org to report
+  security issues; also see our `Security`_ documentation. Security issues are
+  tracked separately at https://zephyrprojectsec.atlassian.net.
+* **Zephyr Project Website**: https://zephyrproject.org
 
-* **Releases**: Source code for Zephyr kernel releases are available at
-  https://zephyrproject.org/developers/#downloads. On this page,
-  you'll find release information, and links to download or clone source
-  code from our GitHub repository.  You'll also find links for the Zephyr
-  SDK, a moderated collection of tools and libraries used to develop your
-  applications.
-
-* **Source Code in GitHub**: Zephyr Project source code is maintained on a
-  public GitHub repository at https://github.com/zephyrproject-rtos/zephyr.
-  You'll find information about getting access to the repository and how to
-  contribute to the project in this `Contribution Guide`_ document.
-
-* **Samples Code**: In addition to the kernel source code, there are also
-  many documented `Sample and Demo Code Examples`_ that can help show you
-  how to use Zephyr services and subsystems.
-
-* **Documentation**: Extensive Project technical documentation is developed
-  along with the Zephyr kernel itself, and can be found at
-  https://zephyrproject.org/doc.  Additional documentation is maintained in
-  the `Zephyr GitHub wiki`_.
-
-* **Issue Reporting and Tracking**: Requirements and Issue tracking is done in
-  the Github issues system: https://github.com/zephyrproject-rtos/zephyr/issues.
-  You can browse through the reported issues and submit issues of your own.
-
-* **Security-related Issue Reporting and Tracking**: For security-related
-  inquiries or reporting suspected security-related bugs in the Zephyr OS,
-  please send email to vulnerabilities@zephyrproject.org.  We will assess and
-  fix flaws according to our security policy outlined in the Zephyr Project
-  `Security Overview`_.
-
-  Security related issue tracking is done in JIRA.  The location of this JIRA
-  is https://zephyrprojectsec.atlassian.net.
-
-* **Mailing List**: The `Zephyr Mailing Lists`_ are perhaps the most convenient
-  way to track developer discussions and to ask your own support questions to
-  the Zephyr project community.
-  You can also read through message archives to follow
-  past posts and discussions, a good thing to do to discover more about the
-  Zephyr project.
-
-* **IRC Chatting**: You can chat online with the Zephyr project developer
-  community and other users in our IRC channel #zephyrproject on the
-  freenode.net IRC server. You can use the http://webchat.freenode.net web
-  client or use a client-side application such as pidgin.
-
-
-.. _supported boards: https://www.zephyrproject.org/doc/boards/boards.html
-.. _Zephyr Introduction: https://www.zephyrproject.org/doc/introduction/introducing_zephyr.html
-.. _Getting Started Guide: https://www.zephyrproject.org/doc/getting_started/getting_started.html
-.. _Contribution Guide: https://www.zephyrproject.org/doc/contribute/contribute_guidelines.html
+.. _Slack Invite: https://tinyurl.com/y5glwylp
+.. _supported boards: http://docs.zephyrproject.org/latest/boards/index.html
+.. _Zephyr Documentation: http://docs.zephyrproject.org
+.. _Introduction to Zephyr: http://docs.zephyrproject.org/latest/introduction/index.html
+.. _Getting Started Guide: http://docs.zephyrproject.org/latest/getting_started/index.html
+.. _Contribution Guide: http://docs.zephyrproject.org/latest/contribute/index.html
 .. _Zephyr GitHub wiki: https://github.com/zephyrproject-rtos/zephyr/wiki
-.. _Zephyr Mailing Lists: https://lists.zephyrproject.org/
-.. _Sample and Demo Code Examples: https://www.zephyrproject.org/doc/samples/samples.html
-.. _Security Overview: https://www.zephyrproject.org/doc/security/security-overview.html
+.. _Zephyr Development mailing list: https://lists.zephyrproject.org/g/devel
+.. _Zephyr mailing list subgroups: https://lists.zephyrproject.org/g/main/subgroups
+.. _Sample and Demo Code Examples: http://docs.zephyrproject.org/latest/samples/index.html
+.. _Security: http://docs.zephyrproject.org/latest/security/index.html
+.. _Asking for Help Tips: https://docs.zephyrproject.org/latest/guides/getting-help.html

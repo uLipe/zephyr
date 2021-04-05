@@ -1,5 +1,8 @@
 tests:
-  - test:
-      build_only: true
-      platform_whitelist: arduino_101
-      tags: fs
+  filesystem.fat.api:
+    platform_allow: native_posix
+    tags: filesystem
+  filesystem.fat.api.lfn:
+    extra_args: CONF_FILE="prj_lfn.conf"
+    platform_allow: native_posix
+    tags: filesystem

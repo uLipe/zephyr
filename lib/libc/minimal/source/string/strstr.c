@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: BSD-4-Clause-UC */
+
 /*-
  * Copyright (c) 1990, 1993
  *      The Regents of the University of California.  All rights reserved.
@@ -51,8 +53,9 @@ strstr(const char *s, const char *find)
 		do {
 			do {
 				sc = *s++;
-				if (sc == 0)
-				return NULL;
+				if (sc == 0) {
+					return NULL;
+				}
 			} while (sc != c);
 		} while (strncmp(s, find, len) != 0);
 	s--;

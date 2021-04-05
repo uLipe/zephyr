@@ -1,32 +1,26 @@
----
-title: Kinetis GPIO
-version: 0.1
+description: Kinetis GPIO node
 
-description: >
-    This is a representation of the Kinetis GPIO nodes
+compatible: "nxp,kinetis-gpio"
+
+include: [gpio-controller.yaml, base.yaml]
 
 properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "nxp,kinetis-gpio"
-
     reg:
-      type: int
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
-    interrupts:
-      type: compound
-      category: required
-      description: required interrupts
-      generation: define
+    label:
+      required: true
 
-cell_string: GPIO
+    "#gpio-cells":
+      const: 2
 
-"#cells":
+    nxp,kinetis-port:
+      required: true
+      type: phandle
+      description: |
+        A phandle reference to the device tree node that contains the pinmux
+        port associated with this GPIO controller.
+
+gpio-cells:
   - pin
   - flags
-...

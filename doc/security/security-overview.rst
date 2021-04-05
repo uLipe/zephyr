@@ -3,20 +3,10 @@
 Zephyr Security Overview
 ########################
 
-+------------------------+------------------+---------------------------+
-| **Revision history**                                                  |
-+========================+==================+===========================+
-| **Rev**                | **Date**         | **Description**           |
-+------------------------+------------------+---------------------------+
-| 1.0 Draft              | July 27, 2016    | Initial draft version     |
-+------------------------+------------------+---------------------------+
-| 1.0-rc1                | April 21, 2017   | Draft for review by TSC   |
-+------------------------+------------------+---------------------------+
-
 Introduction
 ************
 
-This document outlines the steps of the Zephyr Security board towards a
+This document outlines the steps of the Zephyr Security Subcommittee towards a
 defined security process that helps developers build more secure
 software while addressing security compliance requirements. It presents
 the key ideas of the security process and outlines which documents need
@@ -35,7 +25,7 @@ in detail. As depicted in Figure 1, these main steps are:
 
 1. **Secure Development:** Defines the system architecture and
    development process that ensures adherence to relevant coding
-   guidelines and quality assurance procedures.
+   principles and quality assurance procedures.
 
 2. **Secure Design:** Defines security procedures and implement measures
    to enforce them. A security architecture of the system and
@@ -58,7 +48,7 @@ Intended Audience
 =================
 
 This document is a guideline for the development of a security process
-by the Zephyr Security Committee and the Zephyr Technical Steering
+by the Zephyr Security Subcommittee and the Zephyr Technical Steering
 Committee. It provides an overview of the Zephyr security process for
 (security) engineers and architects.
 
@@ -67,7 +57,7 @@ Nomenclature
 
 In this document, the keywords "MUST", "MUST NOT", "REQUIRED", "SHALL",
 "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and
-"OPTIONAL" are to be interpreted as described in `RFC2119`_.
+"OPTIONAL" are to be interpreted as described in [RFC2119]_.
 
 These words are used to define absolute requirements (or prohibitions),
 highly recommended requirements, and truly optional requirements. As
@@ -90,7 +80,7 @@ following process:
 1. Changes will be submitted from the interested party(ies) via pull
    requests to the Zephyr documentation repository.
 
-2. The security committee will review these changes and provide feedback
+2. The Zephyr Security Subcommittee will review these changes and provide feedback
    or acceptance of the changes.
 
 3. Once accepted, these changes will become part of the document.
@@ -115,12 +105,14 @@ The three major security measures currently implemented are:
    requires all code to be reviewed before being committed to the
    common repository. Furthermore, the reuse of proven building
    blocks such as network stacks increases the overall quality level
-   and guarantees stable APIs. Static code analyses are planned for
-   the near future.
+   and guarantees stable APIs. Static code analyses are provided by
+   Coverity Scan.
 
 -  **Execution Protection** including thread separation, stack and
-   memory protection is currently not available in the upstream
-   Zephyr RTOS but is planned for future releases.
+   memory protection is currently available in the upstream
+   Zephyr RTOS starting with version 1.9.0 (stack protection).  Memory
+   protection and thread separation was added in version 1.10.0 for X86
+   and in version 1.11.0 for ARM and ARC.
 
 These topics are discussed in more detail in the following subsections.
 
@@ -148,8 +140,17 @@ The security architecture is based on a monolithic design where the
 Zephyr kernel and all applications are compiled into a single static
 binary. System calls are implemented as function calls without requiring
 context switches. Static linking eliminates the potential for
-dynamically loading malicious code. Memory protection and task
-separation techniques are in scope for future releases.
+dynamically loading malicious code.
+
+Additional protection features are available in later releases.  Stack
+protection mechanisms are provided to protect against stack overruns.
+In addition, applications can take advantage of thread separation
+features to split the system into privileged and unprivileged execution
+environments.  Memory protection features provide the capability to
+partition system resources (memory, peripheral address space, etc) and
+assign resources to individual threads or groups of threads.  Stack,
+thread execution level, and memory protection constraints are enforced
+at the time of context switch.
 
 Quality Assurance
 =================
@@ -173,7 +174,7 @@ maintainer. The main goals of the code review are:
 
 -  Reviewing the security relevant code for potential issues
 
-The current coding guidelines focus mostly on coding styles and
+The current coding principles focus mostly on coding styles and
 conventions. Functional correctness is ensured by the build system and
 the experience of the reviewer. Especially for security relevant code,
 concrete and detailed guidelines need to be developed and aligned with
@@ -199,8 +200,8 @@ more detail; this document is part of that process.
 Execution Protection
 ====================
 
-Execution protection is planned for future releases and is roughly
-categorized into the following tasks:
+Execution protection is supported and can be categorized into the
+following tasks:
 
 -  **Memory separation:** Memory will be partitioned into regions and
    assigned attributes based on the owner of that region of memory.
@@ -212,7 +213,7 @@ categorized into the following tasks:
 
 -  **Thread separation:** Individual threads should only have access to
    their own memory resources. As threads are scheduled, only memory
-   resources owned by that thread will be accessible.Topics such as
+   resources owned by that thread will be accessible. Topics such as
    program flow protection and other measures for tamper resistance
    are currently not in scope.
 
@@ -268,11 +269,11 @@ important submodules. For each of the modules, a dedicated architecture
 document shall be created and evaluated against the implementation.
 These documents shall serve as an entry point to new developers and as a
 basis for the security architecture. Please refer to the
-:ref:`Zephyr Kernel subsystem documentation <subsystems>` for
+:ref:`Zephyr subsystem documentation <api_reference>` for
 detailed information.
 
-Secure Coding Guidelines
-========================
+Secure Coding
+=============
 
 Designing an open software system such as Zephyr to be secure requires
 adhering to a defined set of design standards. These standards are
@@ -281,7 +282,7 @@ included in the Zephyr Project documentation, specifically in its
 accepted principles for protection mechanisms are defined to prevent
 security violations and limit their impact:
 
--  **Open design** as a design guideline incorporates the maxim that
+-  **Open design** as a design principle incorporates the maxim that
    protection mechanisms cannot be kept secret on any system in
    widespread use. Instead of relying on secret, custom-tailored
    security measures, publicly accepted cryptographic algorithms and
@@ -363,10 +364,10 @@ Quality Assurance
 
 The quality assurance part encompasses the following criteria:
 
--  **Adherence to the Coding Guidelines** with respect to coding style,
+-  **Adherence to the Coding Conventions** with respect to coding style,
    naming schemes of modules, functions, variables, and so forth.
    This increases the readability of the Zephyr code base and eases
-   the code review. These coding guidelines are enforced by
+   the code review. These coding conventions are enforced by
    automated scripts prior to check-in.
 
 -  **Adherence to Deployment Guidelines** is required to ensure
@@ -379,25 +380,26 @@ The quality assurance part encompasses the following criteria:
    independent reviewer other than the author(s) of the code change.
    These reviews shall be performed by the subsystem maintainers and
    developers on a functional level and are to be distinguished from
-   security reviews as laid out in Chapter 4. Please refer to the
-   `development model documentation`_ on the Zephyr project Wiki.
+   security reviews as laid out in the `Secure Design`_ section.
+   Refer to the :ref:`development_model` documentation for more information.
 
 -  **Static Code Analysis** tools efficiently detect common coding
    mistakes in large code bases. All code shall be analyzed using an
    appropriate tool prior to merges into the main repository. This
    is not per individual commit, but is to be run on some interval
    on specific branches. It is mandatory to remove all findings or
-   waive potential false-positives before each release. To process
-   process documentation. Waivers shall be documented centrally and
-   in form of a comment inside the source code itself. The
+   waive potential false-positives before each release.
+   Waivers shall be documented centrally and
+   in the form of a comment inside the source code itself. The
    documentation shall include the employed tool and its version,
    the date of the analysis, the branch and parent revision number,
    the reason for the waiver, the author of the respective code, and
    the approver(s) of the waiver. This shall as a minimum run on the
    main release branch and on the security branch. It shall be
    ensured that each release has zero issues with regard to static
-   code analysis (including waivers). Please refer to the
-   `development model documentation`_ on the Zephyr project Wiki.
+   code analysis (including waivers).
+   Refer to the :ref:`development_model` documentation for more information.
+
 
 -  **Complexity Analyses** shall be performed as part of the development
    process and metrics such as cyclomatic complexity shall be
@@ -405,12 +407,12 @@ The quality assurance part encompasses the following criteria:
    possible.
 
 -  **Automation:** the review process and checks for coding rule
-       adherence are a mandatory part of the precommit checks. To
-       ensure consistent application, they shall be automated as part of
-       the precommit procedure. Prior to merging large pieces of code
-       in from subsystems, in addition to review process and coding rule
-       adherence, all static code analysis must have been run and issues
-       resolved.
+   adherence are a mandatory part of the precommit checks. To
+   ensure consistent application, they shall be automated as part of
+   the precommit procedure. Prior to merging large pieces of code
+   in from subsystems, in addition to review process and coding rule
+   adherence, all static code analysis must have been run and issues
+   resolved.
 
 Release and Lifecycle Management
 ================================
@@ -455,12 +457,12 @@ modules in all of its stages and the management of reported security
 issues. Furthermore, threat models need to be created for currently
 known and future attack vectors, and their impact on the system needs to
 be investigated and mitigated. Please refer to the
-`secure coding guidelines`_ outlined in the Zephyr project documentation
+:ref:`secure code` outlined in the Zephyr project documentation
 for detailed information.
 
 The software security process includes:
 
--  **Adherence to the Secure Development Guidelines** is mandatory to
+-  **Adherence to the Secure Development Coding** is mandatory to
    avoid that individual components breach the system security and
    to minimize the vulnerability of individual modules. While this
    can be partially achieved by automated tests, it is inevitable to
@@ -476,8 +478,8 @@ The software security process includes:
    towards a security certification if required.
 
 -  **Security Issue Management** encompasses the evaluation of potential
-   system vulnerabilities and their mitigation as described in the
-   `Security Issue Management`_ Section.
+   system vulnerabilities and their mitigation as described in
+   :ref:`Security Issue Management <reporting>`.
 
 These criteria and tasks need to be integrated into the development
 process for secure software and shall be automated wherever possible. On
@@ -531,80 +533,11 @@ individual documents describing their security architecture.
 Additionally, their impact on the system level security shall be
 considered and documented.
 
-Security Issue Management
-=========================
+Security Vulnerability Reporting
+================================
 
-In order to quickly respond to security threats towards the Zephyr RTOS,
-a well-defined security issue management needs to be established.
-
-Such issues shall be reported through the Zephyr Jira bug tracking
-system. Some JIRA modifications will be necessary to accommodate
-management of security issues. In addition, there will be guidelines
-that govern visibility, control, and resolution of security issues. The
-following is the current proposal:
-
--  A boolean field shall be added to JIRA bugs to mark it security
-   sensitive (or any other name that makes sense). This renders the
-   entry invisible to anyone except as described below.
-
--  Security sensitive bugs are only accessible (view/modify) to members
-   of the Security Group; members of this Security Group are:
-
-   -  members of the Security Subcommittee
-
-   -  other as proposed and ratified Security Subcommittee, who will
-      also have the authority to remove others
-
-   -  the reporter
-
-   -  Ability to add other users for individual issues
-
--  Security Subcommittee meetings have to review the embargoed bugs on
-   every meeting with more than three people in attendance. Said
-   review process shall decide if new issues needs to be embargoed
-   or not.
-
--  Security sensitive bugs shall be made public (by removing the
-   security sensitive indicator) after an embargo period of TBD
-   days. The Security Subcommittee is the only entity with authority
-   to extend the embargo period on a case by case basis; the JIRA
-   entry should be updated with the rationale for the embargo
-   extension so at some point said rationale will be made public.If
-   the Security Subcommittee does not act upon a security sensitive
-   bug after its TBD days of embargo are over, it shall be
-   automatically made public by removing the security sensitive
-   setting.
-
--  Likewise, there shall be code repositories marked as security
-   sensitive, accessible only to the Security Group members where
-   the code to fix said issues is being worked on and reviewed. The
-   person/s contributing the fix shall also have access, but fix
-   contributors shall have only access to the tree for said fix, not
-   to other security sensitive trees.
-
--  A CVE space shall be allocated to assign Zephyr issues when the SWG
-   decides such is needed.
-
--  The severity of the issue with regard to security shall be entered by
-   the reporter.
-
--  All security relevant issues shall trigger an automated notification
-   on the Zephyr security mailing list
-   (vulnerabilities@zephyrproject.org).  Any member of the security
-   board can then triage the severity of the issue according to the
-   `Common Vulnerability Scoring System v3.0 <CVSS_>`_
-
--  Depending on the resulting severity score of the issue, the issue is
-   prioritized and assigned to the owner of the affected module.
-   Additionally, the system security architect and the security
-   architect of the module are notified and shall take the
-   responsibility to mitigate the issue and review the solution or
-   counter-measure. In any case, the security issue shall be
-   documented centrally, including the affected modules, software
-   releases, and applicable workarounds for immediate mitigation. A
-   list of known security issues per public release of the Zephyr
-   shall be published and maintained by the security board after a
-   risk assessment.
+Please see :ref:`reporting` for information on reporting security
+vulnerabilities.
 
 Threat Modeling and Mitigation
 ==============================
@@ -624,15 +557,15 @@ and appropriate counter-measures are defined to mitigate the threat or
 limit the impact of exploits.
 
 In short, the threat modeling process can be separated into these steps
-(adapted from `Application Thread Modeling`_:
+(adapted from [OWASP]_):
 
 1. Definition of assets
 
 2. Application decomposition and creation of appropriate data flow
    diagrams (DFDs)
 
-3. Threat identification and categorization using the `STRIDE`_ and
-   `CVSS`_ approaches
+3. Threat identification and categorization using the [STRIDE09]_ and
+   [CVSS]_ approaches
 
 4. Determination of countermeasures and other mitigation approaches
 
@@ -776,16 +709,3 @@ include [GHS10]_
 
 These assumptions shall be part of the security claim and evaluation
 target documents.
-
-References
-**********
-
-See :ref:`security-citations`
-
-.. _`RFC2119`: https://www.ietf.org/rfc/rfc2119.txt
-.. _`Application Thread Modeling`: https://www.owasp.org/index.php/Application_Threat_Modeling
-.. _`STRIDE`: https://msdn.microsoft.com/en-us/library/ee823878%28v=cs.20%29.aspx
-.. _`Zephyr Kernel subsystem documentation`: https://www.zephyrproject.org/doc/subsystems/subsystems.html
-.. _`secure coding guidelines`: https://www.zephyrproject.org/doc/contribute/security.html
-.. _`development model documentation`: https://github.com/zephyrproject-rtos/zephyr/wiki/Development-Model
-.. _`CVSS`: https://www.first.org/cvss/specification-document

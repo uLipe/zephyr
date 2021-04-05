@@ -1,7 +1,7 @@
 sample:
   name: Telnet Server
 tests:
-  - test:
-      build_only: true
-      depends_on: netif
-      tags: net telnet
+  sample.net.telnet:
+    harness: net
+    depends_on: netif
+    tags: net telnet

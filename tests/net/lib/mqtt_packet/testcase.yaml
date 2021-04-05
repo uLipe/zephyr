@@ -1,4 +1,6 @@
+common:
+  depends_on: netif
 tests:
-  - test:
-      min_ram: 16
-      tags: mqtt net
+  net.mqtt.packet:
+    min_ram: 16
+    tags: mqtt net userspace

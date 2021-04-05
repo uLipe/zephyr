@@ -7,16 +7,17 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef __BT_ATT_H
-#define __BT_ATT_H
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_ATT_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_ATT_H_
+
+#include <sys/slist.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <misc/slist.h>
-
 /* Error codes for Error response PDU */
+#define BT_ATT_ERR_SUCCESS			0x00
 #define BT_ATT_ERR_INVALID_HANDLE		0x01
 #define BT_ATT_ERR_READ_NOT_PERMITTED		0x02
 #define BT_ATT_ERR_WRITE_NOT_PERMITTED		0x03
@@ -34,6 +35,8 @@ extern "C" {
 #define BT_ATT_ERR_INSUFFICIENT_ENCRYPTION	0x0f
 #define BT_ATT_ERR_UNSUPPORTED_GROUP_TYPE	0x10
 #define BT_ATT_ERR_INSUFFICIENT_RESOURCES	0x11
+#define BT_ATT_ERR_DB_OUT_OF_SYNC		0x12
+#define BT_ATT_ERR_VALUE_NOT_ALLOWED		0x13
 
 /* Common Profile Error Codes (from CSS) */
 #define BT_ATT_ERR_WRITE_REQ_REJECTED		0xfc
@@ -41,25 +44,11 @@ extern "C" {
 #define BT_ATT_ERR_PROCEDURE_IN_PROGRESS	0xfe
 #define BT_ATT_ERR_OUT_OF_RANGE			0xff
 
-typedef void (*bt_att_func_t)(struct bt_conn *conn, u8_t err,
-			      const void *pdu, u16_t length,
-			      void *user_data);
-typedef void (*bt_att_destroy_t)(void *user_data);
-
-/* ATT request context */
-struct bt_att_req {
-	sys_snode_t node;
-	bt_att_func_t func;
-	bt_att_destroy_t destroy;
-	struct net_buf_simple_state state;
-	struct net_buf *buf;
-#if defined(CONFIG_BT_SMP)
-	bool retrying;
-#endif /* CONFIG_BT_SMP */
-};
+/* Version 5.2, Vol 3, Part F, 3.2.9 defines maximum attribute length to 512 */
+#define BT_ATT_MAX_ATTRIBUTE_LEN		512
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __BT_ATT_H */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_ATT_H_ */

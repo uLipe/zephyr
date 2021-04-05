@@ -5,7 +5,9 @@
  */
 
 /**
- * @file measure time from ISR to a rescheduled thread
+ * @file
+ *
+ * @brief measure time from ISR to a rescheduled thread
  *
  * This file contains test that measures time to switch from an interrupt
  * handler to executing a thread after rescheduling. In other words, execution
@@ -16,16 +18,14 @@
 #include <zephyr.h>
 #include <irq_offload.h>
 
-#include "timestamp.h"
 #include "utils.h"
 
-#include <arch/cpu.h>
-
-static u32_t timestamp;
-
+static timing_t timestamp_start;
+static timing_t timestamp_end;
+static struct k_work work;
 
 K_SEM_DEFINE(INTSEMA, 0, 1);
-K_ALERT_DEFINE(EVENT0, NULL, 10);
+K_SEM_DEFINE(WORKSEMA, 0, 1);
 
 /**
  *
@@ -35,12 +35,20 @@ K_ALERT_DEFINE(EVENT0, NULL, 10);
  *
  * @return N/A
  */
-static void latency_test_isr(void *unused)
+static void latency_test_isr(const void *unused)
 {
 	ARG_UNUSED(unused);
 
-	k_alert_send(&EVENT0);
-	timestamp = TIME_STAMP_DELTA_GET(0);
+	k_work_submit(&work);
+	timestamp_start = timing_counter_get();
+}
+
+static void worker(struct k_work *item)
+{
+	(void)item;
+
+	timestamp_end = timing_counter_get();
+	k_sem_give(&WORKSEMA);
 }
 
 /**
@@ -60,10 +68,8 @@ void int_thread(void)
 	k_thread_suspend(k_current_get());
 }
 
-
-K_THREAD_DEFINE(int_thread_id, 512,
-		(k_thread_entry_t) int_thread, NULL, NULL, NULL,
-		11, 0, K_NO_WAIT);
+K_THREAD_DEFINE(int_thread_id, 512, (k_thread_entry_t)int_thread, NULL, NULL,
+		NULL, 11, 0, 0);
 
 /**
  *
@@ -73,13 +79,19 @@ K_THREAD_DEFINE(int_thread_id, 512,
  */
 int int_to_thread_evt(void)
 {
-	PRINT_FORMAT(" 2 - Measure time from ISR to executing a different thread"
-		     " (rescheduled)");
+	uint32_t diff;
+
+	k_work_init(&work, worker);
+
+	timing_start();
 	TICK_SYNCH();
 	k_sem_give(&INTSEMA);
-	k_alert_recv(&EVENT0, K_FOREVER);
-	timestamp = TIME_STAMP_DELTA_GET(timestamp);
-	PRINT_FORMAT(" switch time is %u tcs = %u nsec",
-		     timestamp, SYS_CLOCK_HW_CYCLES_TO_NS(timestamp));
+	k_sem_take(&WORKSEMA, K_FOREVER);
+	timing_stop();
+
+	diff = timing_cycles_get(&timestamp_start, &timestamp_end);
+
+	PRINT_STATS("Time from ISR to executing a different thread", diff)
+
 	return 0;
 }

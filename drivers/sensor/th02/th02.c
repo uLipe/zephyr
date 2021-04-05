@@ -4,34 +4,39 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT hoperf_th02
+
 #include <kernel.h>
 #include <device.h>
-#include <i2c.h>
-#include <misc/byteorder.h>
-#include <misc/util.h>
-#include <sensor.h>
-#include <misc/__assert.h>
+#include <drivers/i2c.h>
+#include <sys/byteorder.h>
+#include <sys/util.h>
+#include <drivers/sensor.h>
+#include <sys/__assert.h>
+#include <logging/log.h>
 
 #include "th02.h"
 
-static u8_t read8(struct device *dev, u8_t d)
+LOG_MODULE_REGISTER(TH02, CONFIG_SENSOR_LOG_LEVEL);
+
+static uint8_t read8(const struct device *dev, uint8_t d)
 {
-	u8_t buf;
+	uint8_t buf;
 
 	if (i2c_reg_read_byte(dev, TH02_I2C_DEV_ID, d, &buf) < 0) {
-		SYS_LOG_ERR("Error reading register.");
+		LOG_ERR("Error reading register.");
 	}
 	return buf;
 }
 
-static int is_ready(struct device *dev)
+static int is_ready(const struct device *dev)
 {
 
-	u8_t status;
+	uint8_t status;
 
 	if (i2c_reg_read_byte(dev, TH02_I2C_DEV_ID,
 			      TH02_REG_STATUS, &status) < 0) {
-		SYS_LOG_ERR("error reading status register");
+		LOG_ERR("error reading status register");
 	}
 
 	if (status & TH02_STATUS_RDY_MASK) {
@@ -41,18 +46,17 @@ static int is_ready(struct device *dev)
 	}
 }
 
-static u16_t get_humi(struct device *dev)
+static uint16_t get_humi(const struct device *dev)
 {
-	u16_t humidity = 0;
+	uint16_t humidity = 0U;
 
 	if (i2c_reg_write_byte(dev, TH02_I2C_DEV_ID,
 			       TH02_REG_CONFIG, TH02_CMD_MEASURE_HUMI) < 0) {
-		SYS_LOG_ERR("Error writing register");
+		LOG_ERR("Error writing register");
 		return 0;
 	}
 	while (!is_ready(dev)) {
 	}
-	;
 
 	humidity = read8(dev, TH02_REG_DATA_H) << 8;
 	humidity |= read8(dev, TH02_REG_DATA_L);
@@ -61,18 +65,17 @@ static u16_t get_humi(struct device *dev)
 	return humidity;
 }
 
-u16_t get_temp(struct device *dev)
+uint16_t get_temp(const struct device *dev)
 {
-	u16_t temperature = 0;
+	uint16_t temperature = 0U;
 
 	if (i2c_reg_write_byte(dev, TH02_I2C_DEV_ID,
 			       TH02_REG_CONFIG, TH02_CMD_MEASURE_TEMP) < 0) {
-		SYS_LOG_ERR("Error writing register");
+		LOG_ERR("Error writing register");
 		return 0;
 	}
 	while (!is_ready(dev)) {
 	}
-	;
 
 	temperature = read8(dev, TH02_REG_DATA_H) << 8;
 	temperature |= read8(dev, TH02_REG_DATA_L);
@@ -81,35 +84,37 @@ u16_t get_temp(struct device *dev)
 	return temperature;
 }
 
-static int th02_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int th02_sample_fetch(const struct device *dev,
+			     enum sensor_channel chan)
 {
-	struct th02_data *drv_data = dev->driver_data;
+	struct th02_data *drv_data = dev->data;
 
-	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_TEMP);
+	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_AMBIENT_TEMP);
 
 	drv_data->t_sample = get_temp(drv_data->i2c);
-	SYS_LOG_INF("temp: %u", drv_data->t_sample);
+	LOG_INF("temp: %u", drv_data->t_sample);
 	drv_data->rh_sample = get_humi(drv_data->i2c);
-	SYS_LOG_INF("rh: %u", drv_data->rh_sample);
+	LOG_INF("rh: %u", drv_data->rh_sample);
 
 	return 0;
 }
 
-static int th02_channel_get(struct device *dev, enum sensor_channel chan,
+static int th02_channel_get(const struct device *dev,
+			    enum sensor_channel chan,
 			    struct sensor_value *val)
 {
-	struct th02_data *drv_data = dev->driver_data;
+	struct th02_data *drv_data = dev->data;
 
-	__ASSERT_NO_MSG(chan == SENSOR_CHAN_TEMP ||
+	__ASSERT_NO_MSG(chan == SENSOR_CHAN_AMBIENT_TEMP ||
 			chan == SENSOR_CHAN_HUMIDITY);
 
-	if (chan == SENSOR_CHAN_TEMP) {
+	if (chan == SENSOR_CHAN_AMBIENT_TEMP) {
 		/* val = sample / 32 - 50 */
-		val->val1 = drv_data->t_sample / 32 - 50;
+		val->val1 = drv_data->t_sample / 32U - 50;
 		val->val2 = (drv_data->t_sample % 32) * (1000000 / 32);
 	} else {
 		/* val = sample / 16 -24 */
-		val->val1 = drv_data->rh_sample / 16 - 24;
+		val->val1 = drv_data->rh_sample / 16U - 24;
 		val->val2 = (drv_data->rh_sample % 16) * (1000000 / 16);
 	}
 
@@ -121,23 +126,22 @@ static const struct sensor_driver_api th02_driver_api = {
 	.channel_get = th02_channel_get,
 };
 
-static int th02_init(struct device *dev)
+static int th02_init(const struct device *dev)
 {
-	struct th02_data *drv_data = dev->driver_data;
+	struct th02_data *drv_data = dev->data;
 
-	drv_data->i2c = device_get_binding(CONFIG_TH02_I2C_MASTER_DEV_NAME);
+	drv_data->i2c = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (drv_data->i2c == NULL) {
-		SYS_LOG_ERR("Failed to get pointer to %s device!",
-			    CONFIG_TH02_I2C_MASTER_DEV_NAME);
+		LOG_ERR("Failed to get pointer to %s device!",
+			    DT_INST_BUS_LABEL(0));
 		return -EINVAL;
 	}
-
-	dev->driver_api = &th02_driver_api;
 
 	return 0;
 }
 
 static struct th02_data th02_driver;
 
-DEVICE_INIT(th02, CONFIG_TH02_NAME, th02_init, &th02_driver,
-	    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY);
+DEVICE_DT_INST_DEFINE(0, th02_init, device_pm_control_nop, &th02_driver,
+		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
+		    &th02_driver_api);

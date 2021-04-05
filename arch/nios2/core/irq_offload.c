@@ -9,13 +9,13 @@
 #include <irq_offload.h>
 
 volatile irq_offload_routine_t _offload_routine;
-static volatile void *offload_param;
+static volatile const void *offload_param;
 
 /* Called by _enter_irq if it was passed 0 for ipending.
  * Just in case the offload routine itself generates an unhandled
  * exception, clear the offload_routine global before executing.
  */
-void _irq_do_offload(void)
+void z_irq_do_offload(void)
 {
 	irq_offload_routine_t tmp;
 
@@ -26,12 +26,12 @@ void _irq_do_offload(void)
 	tmp = _offload_routine;
 	_offload_routine = NULL;
 
-	tmp((void *)offload_param);
+	tmp((const void *)offload_param);
 }
 
-void irq_offload(irq_offload_routine_t routine, void *parameter)
+void arch_irq_offload(irq_offload_routine_t routine, const void *parameter)
 {
-	int key;
+	unsigned int key;
 
 	key = irq_lock();
 	_offload_routine = routine;
@@ -41,4 +41,3 @@ void irq_offload(irq_offload_routine_t routine, void *parameter)
 
 	irq_unlock(key);
 }
-

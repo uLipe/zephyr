@@ -1,7 +1,7 @@
-set(DEBUG_SCRIPT jlink.sh)
+# SPDX-License-Identifier: Apache-2.0
 
-set(JLINK_DEVICE MKW24D512xxx5)
+board_runner_args(jlink "--device=MKW24D512xxx5" "--speed=4000")
+board_runner_args(pyocd "--target=kw24d5" "--frequency=4000000")
 
-set_property(GLOBAL APPEND PROPERTY FLASH_SCRIPT_ENV_VARS
-  JLINK_DEVICE
-  )
+include(${ZEPHYR_BASE}/boards/common/jlink.board.cmake)
+include(${ZEPHYR_BASE}/boards/common/pyocd.board.cmake)

@@ -5,10 +5,16 @@
  */
 #include <device.h>
 
-#ifndef _kernel_offsets__h_
-#define _kernel_offsets__h_
+#ifndef ZEPHYR_KERNEL_INCLUDE_KERNEL_OFFSETS_H_
+#define ZEPHYR_KERNEL_INCLUDE_KERNEL_OFFSETS_H_
 
 #include <syscall_list.h>
+
+/* All of this is build time magic, but LCOV gets confused. Disable coverage
+ * for this whole file.
+ *
+ * LCOV_EXCL_START
+ */
 
 /*
  * The final link step uses the symbol _OffsetAbsSyms to force the linkage of
@@ -17,28 +23,29 @@
 
 GEN_ABS_SYM_BEGIN(_OffsetAbsSyms)
 
-GEN_OFFSET_SYM(_kernel_t, current);
+GEN_OFFSET_SYM(_cpu_t, current);
+GEN_OFFSET_SYM(_cpu_t, nested);
+GEN_OFFSET_SYM(_cpu_t, irq_stack);
 
 #if defined(CONFIG_THREAD_MONITOR)
 GEN_OFFSET_SYM(_kernel_t, threads);
 #endif
 
-GEN_OFFSET_SYM(_kernel_t, nested);
-GEN_OFFSET_SYM(_kernel_t, irq_stack);
-#ifdef CONFIG_SYS_POWER_MANAGEMENT
+#ifdef CONFIG_PM
 GEN_OFFSET_SYM(_kernel_t, idle);
 #endif
 
 GEN_OFFSET_SYM(_kernel_t, ready_q);
-GEN_OFFSET_SYM(_kernel_t, arch);
 
+#ifndef CONFIG_SMP
 GEN_OFFSET_SYM(_ready_q_t, cache);
+#endif
 
-#ifdef CONFIG_FP_SHARING
+#ifdef CONFIG_FPU_SHARING
 GEN_OFFSET_SYM(_kernel_t, current_fp);
 #endif
 
-GEN_ABSOLUTE_SYM(_STRUCT_KERNEL_SIZE, sizeof(struct _kernel));
+GEN_ABSOLUTE_SYM(_STRUCT_KERNEL_SIZE, sizeof(struct z_kernel));
 
 GEN_OFFSET_SYM(_thread_base_t, user_options);
 GEN_OFFSET_SYM(_thread_base_t, thread_state);
@@ -48,9 +55,12 @@ GEN_OFFSET_SYM(_thread_base_t, preempt);
 GEN_OFFSET_SYM(_thread_base_t, swap_data);
 
 GEN_OFFSET_SYM(_thread_t, base);
-GEN_OFFSET_SYM(_thread_t, caller_saved);
 GEN_OFFSET_SYM(_thread_t, callee_saved);
 GEN_OFFSET_SYM(_thread_t, arch);
+
+#ifdef CONFIG_USE_SWITCH
+GEN_OFFSET_SYM(_thread_t, switch_handle);
+#endif
 
 #ifdef CONFIG_THREAD_STACK_INFO
 GEN_OFFSET_SYM(_thread_stack_info_t, start);
@@ -67,13 +77,18 @@ GEN_OFFSET_SYM(_thread_t, next_thread);
 GEN_OFFSET_SYM(_thread_t, custom_data);
 #endif
 
+#ifdef CONFIG_THREAD_LOCAL_STORAGE
+GEN_OFFSET_SYM(_thread_t, tls);
+#endif
+
 GEN_ABSOLUTE_SYM(K_THREAD_SIZEOF, sizeof(struct k_thread));
 
 /* size of the device structure. Used by linker scripts */
-GEN_ABSOLUTE_SYM(_DEVICE_STRUCT_SIZE, sizeof(struct device));
+GEN_ABSOLUTE_SYM(_DEVICE_STRUCT_SIZEOF, sizeof(const struct device));
 
-/* Access to enum values in asm code */
-GEN_ABSOLUTE_SYM(_SYSCALL_LIMIT, K_SYSCALL_LIMIT);
-GEN_ABSOLUTE_SYM(_SYSCALL_BAD, K_SYSCALL_BAD);
+/* member offsets in the device structure. Used in image post-processing */
+GEN_ABSOLUTE_SYM(_DEVICE_STRUCT_HANDLES_OFFSET,
+		 offsetof(struct device, handles));
 
-#endif /* _kernel_offsets__h_ */
+/* LCOV_EXCL_STOP */
+#endif /* ZEPHYR_KERNEL_INCLUDE_KERNEL_OFFSETS_H_ */

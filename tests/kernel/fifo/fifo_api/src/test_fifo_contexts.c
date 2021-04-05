@@ -4,18 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @addtogroup t_fifo_api
- * @{
- * @defgroup t_fifo_api_basic test_fifo_api_basic
- * @brief TestPurpose: verify zephyr fifo apis under different context
- * - API coverage
- *   -# k_fifo_init K_FIFO_DEFINE
- *   -# k_fifo_put k_fifo_put_list k_fifo_put_slist
- *   -# k_fifo_get
- * @}
- */
-
 #include "test_fifo.h"
 
 #define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACKSIZE)
@@ -44,7 +32,7 @@ static void tfifo_put(struct k_fifo *pfifo)
 
 	head->snode.next = (sys_snode_t *)tail;
 	tail->snode.next = NULL;
-	k_fifo_put_list(pfifo, (u32_t *)head, (u32_t *)tail);
+	k_fifo_put_list(pfifo, (uint32_t *)head, (uint32_t *)tail);
 
 	/**TESTPOINT: fifo put slist*/
 	sys_slist_t slist;
@@ -78,13 +66,13 @@ static void tfifo_get(struct k_fifo *pfifo)
 }
 
 /*entry of contexts*/
-static void tIsr_entry_put(void *p)
+static void tIsr_entry_put(const void *p)
 {
 	tfifo_put((struct k_fifo *)p);
 	zassert_false(k_fifo_is_empty((struct k_fifo *)p), NULL);
 }
 
-static void tIsr_entry_get(void *p)
+static void tIsr_entry_get(const void *p)
 {
 	tfifo_get((struct k_fifo *)p);
 	zassert_true(k_fifo_is_empty((struct k_fifo *)p), NULL);
@@ -102,7 +90,7 @@ static void tfifo_thread_thread(struct k_fifo *pfifo)
 	/**TESTPOINT: thread-thread data passing via fifo*/
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
 				      tThread_entry, pfifo, NULL, NULL,
-				      K_PRIO_PREEMPT(0), 0, 0);
+				      K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 	tfifo_put(pfifo);
 	k_sem_take(&end_sema, K_FOREVER);
 	k_thread_abort(tid);
@@ -111,17 +99,17 @@ static void tfifo_thread_thread(struct k_fifo *pfifo)
 static void tfifo_thread_isr(struct k_fifo *pfifo)
 {
 	k_sem_init(&end_sema, 0, 1);
-	/**TESTPOINT: thread-isr data passing via fifo*/
-	irq_offload(tIsr_entry_put, pfifo);
+	/**TESTPOINT: isr-thread data passing via fifo*/
+	irq_offload(tIsr_entry_put, (const void *)pfifo);
 	tfifo_get(pfifo);
 }
 
 static void tfifo_isr_thread(struct k_fifo *pfifo)
 {
 	k_sem_init(&end_sema, 0, 1);
-	/**TESTPOINT: isr-thread data passing via fifo*/
+	/**TESTPOINT: thread-isr data passing via fifo*/
 	tfifo_put(pfifo);
-	irq_offload(tIsr_entry_get, pfifo);
+	irq_offload(tIsr_entry_get, (const void *)pfifo);
 }
 
 static void tfifo_is_empty(void *p)
@@ -137,7 +125,15 @@ static void tfifo_is_empty(void *p)
 	zassert_true(k_fifo_is_empty(pfifo), NULL);
 }
 
-/*test cases*/
+/**
+ * @addtogroup kernel_fifo_tests
+ * @{
+ */
+
+/**
+ * @brief Test thread to thread data passing via fifo
+ * @see k_fifo_init(), k_fifo_put(), k_fifo_get(), k_fifo_put_list()
+ */
 void test_fifo_thread2thread(void)
 {
 	/**TESTPOINT: init via k_fifo_init*/
@@ -148,6 +144,10 @@ void test_fifo_thread2thread(void)
 	tfifo_thread_thread(&kfifo);
 }
 
+/**
+ * @brief Test isr to thread data passing via fifo
+ * @see k_fifo_init(), k_fifo_put(), k_fifo_get()
+ */
 void test_fifo_thread2isr(void)
 {
 	/**TESTPOINT: init via k_fifo_init*/
@@ -158,6 +158,10 @@ void test_fifo_thread2isr(void)
 	tfifo_thread_isr(&kfifo);
 }
 
+/**
+ * @brief Test thread to isr data passing via fifo
+ * @see k_fifo_init(), k_fifo_put(), k_fifo_get()
+ */
 void test_fifo_isr2thread(void)
 {
 	/**TESTPOINT: test k_fifo_init fifo*/
@@ -168,6 +172,10 @@ void test_fifo_isr2thread(void)
 	tfifo_isr_thread(&kfifo);
 }
 
+/**
+ * @brief Test empty fifo
+ * @see k_fifo_init(), k_fifo_is_empty(), k_fifo_put(), k_fifo_get()
+ */
 void test_fifo_is_empty_thread(void)
 {
 	k_fifo_init(&fifo);
@@ -178,9 +186,16 @@ void test_fifo_is_empty_thread(void)
 	tfifo_is_empty(&fifo);
 }
 
+/**
+ * @brief Test empty fifo in interrupt context
+ * @see k_fifo_init(), fifo_is_empty(), k_fifo_put(), k_fifo_get()
+ */
 void test_fifo_is_empty_isr(void)
 {
 	k_fifo_init(&fifo);
 	/**TESTPOINT: check fifo is empty from isr*/
-	irq_offload(tfifo_is_empty, &fifo);
+	irq_offload((irq_offload_routine_t)tfifo_is_empty, &fifo);
 }
+/**
+ * @}
+ */

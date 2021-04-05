@@ -1,36 +1,29 @@
----
-title: STM32 USART
-id: st,stm32-usart
-version: 0.1
+description: STM32 USART
 
-description: >
-    This binding gives a base representation of the STM32 USART
+compatible: "st,stm32-usart"
 
-inherits:
-    !include uart.yaml
+include: uart-controller.yaml
 
 properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "st,stm32-usart"
-
     reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
 
-    clocks:
-      type: array
-      category: required
-      description: Clock gate control information
-      generation: define
-...
+    parity:
+      required: false
+      type: int
+      description: |
+        Configures the parity of the adapter. Value 0 for none, 1 for odd
+        and 2 for even parity.  Default to none if not specified.
+
+    pinctrl-0:
+      type: phandles
+      required: false
+      description: |
+        GPIO pin configuration for serial signals (RX, TX, RTS, CTS).  We expect
+        that the phandles will reference pinctrl nodes.
+
+        For example the USART1 would be
+           pinctrl-0 = <&usart1_tx_pb6 &usart1_rx_pb7>;

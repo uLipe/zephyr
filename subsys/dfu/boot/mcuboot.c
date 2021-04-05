@@ -8,259 +8,209 @@
 #include <stddef.h>
 #include <errno.h>
 #include <string.h>
-#include <flash.h>
+#include <drivers/flash.h>
+#include <storage/flash_map.h>
 #include <zephyr.h>
 #include <init.h>
 
-#include <misc/__assert.h>
-#include <board.h>
+#include <sys/__assert.h>
+#include <sys/byteorder.h>
+
+#include "bootutil/bootutil_public.h"
 #include <dfu/mcuboot.h>
 
+#include "mcuboot_priv.h"
+
 /*
- * Helpers for image trailer, as defined by mcuboot.
- * Image trailer consists of sequence of fields:
- *   u8_t copy_done
- *   u8_t padding_1[BOOT_MAX_ALIGN - 1]
- *   u8_t image_ok
- *   u8_t padding_2[BOOT_MAX_ALIGN - 1]
- *   u8_t magic[16]
+ * Helpers for image headers and trailers, as defined by mcuboot.
  */
 
 /*
- * Strict defines: Defines in block below must be equal to coresponding
- * mcuboot defines
+ * Strict defines: the definitions in the following block contain
+ * values which are MCUboot implementation requirements.
  */
-#define BOOT_MAX_ALIGN 8
-#define BOOT_MAGIC_SZ  16
-#define BOOT_FLAG_SET 0x01
-#define BOOT_FLAG_UNSET 0xff
-/* end_of Strict defines */
 
-#define BOOT_MAGIC_GOOD  1
-#define BOOT_MAGIC_BAD   2
-#define BOOT_MAGIC_UNSET 3
+/* Header: */
+#define BOOT_HEADER_MAGIC_V1 0x96f3b83d
+#define BOOT_HEADER_SIZE_V1 32
 
-#define BOOT_FLAG_IMAGE_OK 0
-#define BOOT_FLAG_COPY_DONE 1
+/*
+ * Raw (on-flash) representation of the v1 image header.
+ */
+struct mcuboot_v1_raw_header {
+	uint32_t header_magic;
+	uint32_t image_load_address;
+	uint16_t header_size;
+	uint16_t pad;
+	uint32_t image_size;
+	uint32_t image_flags;
+	struct {
+		uint8_t major;
+		uint8_t minor;
+		uint16_t revision;
+		uint32_t build_num;
+	} version;
+	uint32_t pad2;
+} __packed;
 
-#define FLASH_MIN_WRITE_SIZE FLASH_WRITE_BLOCK_SIZE
-#define FLASH_BANK0_OFFSET FLASH_AREA_IMAGE_0_OFFSET
+/*
+ * End of strict defines
+ */
 
-/* FLASH_AREA_IMAGE_XX_YY values used below are auto-generated thanks to DT */
-#define FLASH_BANK_SIZE FLASH_AREA_IMAGE_0_SIZE
-#define FLASH_BANK1_OFFSET FLASH_AREA_IMAGE_1_OFFSET
-#define FLASH_STATE_OFFSET (FLASH_AREA_IMAGE_SCRATCH_OFFSET +\
-			    FLASH_AREA_IMAGE_SCRATCH_SIZE)
-
-#define COPY_DONE_OFFS(bank_offs) (bank_offs + FLASH_BANK_SIZE -\
-				   BOOT_MAGIC_SZ - BOOT_MAX_ALIGN * 2)
-
-#define IMAGE_OK_OFFS(bank_offs) (bank_offs + FLASH_BANK_SIZE - BOOT_MAGIC_SZ -\
-				  BOOT_MAX_ALIGN)
-#define MAGIC_OFFS(bank_offs) (bank_offs + FLASH_BANK_SIZE - BOOT_MAGIC_SZ)
-
-const u32_t boot_img_magic[4] = {
-	0xf395c277,
-	0x7fefd260,
-	0x0f505235,
-	0x8079b62c,
-};
-
-static struct device *flash_dev;
-
-static int boot_flag_offs(int flag, u32_t bank_offs, u32_t *offs)
+static int boot_read_v1_header(uint8_t area_id,
+			       struct mcuboot_v1_raw_header *v1_raw)
 {
-	switch (flag) {
-	case BOOT_FLAG_COPY_DONE:
-		*offs = COPY_DONE_OFFS(bank_offs);
-		return 0;
-	case BOOT_FLAG_IMAGE_OK:
-		*offs = IMAGE_OK_OFFS(bank_offs);
-		return 0;
-	default:
-		return -ENOTSUP;
-	}
-}
-
-
-static int boot_flash_write(off_t offs, const void *data, size_t len)
-{
+	const struct flash_area *fa;
 	int rc;
 
-	rc = flash_write_protection_set(flash_dev, false);
+	rc = flash_area_open(area_id, &fa);
 	if (rc) {
 		return rc;
 	}
 
-	rc = flash_write(flash_dev, offs, data, len);
+	/*
+	 * Read and sanity-check the raw header.
+	 */
+	rc = flash_area_read(fa, 0, v1_raw, sizeof(*v1_raw));
+	flash_area_close(fa);
 	if (rc) {
 		return rc;
 	}
 
-	rc = flash_write_protection_set(flash_dev, true);
+	v1_raw->header_magic = sys_le32_to_cpu(v1_raw->header_magic);
+	v1_raw->image_load_address =
+		sys_le32_to_cpu(v1_raw->image_load_address);
+	v1_raw->header_size = sys_le16_to_cpu(v1_raw->header_size);
+	v1_raw->image_size = sys_le32_to_cpu(v1_raw->image_size);
+	v1_raw->image_flags = sys_le32_to_cpu(v1_raw->image_flags);
+	v1_raw->version.revision =
+		sys_le16_to_cpu(v1_raw->version.revision);
+	v1_raw->version.build_num =
+		sys_le32_to_cpu(v1_raw->version.build_num);
 
-	return rc;
+	/*
+	 * Sanity checks.
+	 *
+	 * Larger values in header_size than BOOT_HEADER_SIZE_V1 are
+	 * possible, e.g. if Zephyr was linked with
+	 * CONFIG_ROM_START_OFFSET > BOOT_HEADER_SIZE_V1.
+	 */
+	if ((v1_raw->header_magic != BOOT_HEADER_MAGIC_V1) ||
+	    (v1_raw->header_size < BOOT_HEADER_SIZE_V1)) {
+		return -EIO;
+	}
+
+	return 0;
 }
 
-static int boot_flag_write(int flag, u32_t bank_offs)
+int boot_read_bank_header(uint8_t area_id,
+			  struct mcuboot_img_header *header,
+			  size_t header_size)
 {
-	u8_t buf[FLASH_MIN_WRITE_SIZE];
-	u32_t offs;
 	int rc;
+	struct mcuboot_v1_raw_header v1_raw;
+	struct mcuboot_img_sem_ver *sem_ver;
+	size_t v1_min_size = (sizeof(uint32_t) +
+			      sizeof(struct mcuboot_img_header_v1));
 
-	rc = boot_flag_offs(flag, bank_offs, &offs);
-	if (rc != 0) {
+	/*
+	 * Only version 1 image headers are supported.
+	 */
+	if (header_size < v1_min_size) {
+		return -ENOMEM;
+	}
+	rc = boot_read_v1_header(area_id, &v1_raw);
+	if (rc) {
 		return rc;
 	}
 
-	memset(buf, BOOT_FLAG_UNSET, sizeof(buf));
-	buf[0] = BOOT_FLAG_SET;
-
-	rc = boot_flash_write(offs, buf, sizeof(buf));
-
-	return rc;
+	/*
+	 * Copy just the fields we care about into the return parameter.
+	 *
+	 * - header_magic:       skip (only used to check format)
+	 * - image_load_address: skip (only matters for PIC code)
+	 * - header_size:        skip (only used to check format)
+	 * - image_size:         include
+	 * - image_flags:        skip (all unsupported or not relevant)
+	 * - version:            include
+	 */
+	header->mcuboot_version = 1U;
+	header->h.v1.image_size = v1_raw.image_size;
+	sem_ver = &header->h.v1.sem_ver;
+	sem_ver->major = v1_raw.version.major;
+	sem_ver->minor = v1_raw.version.minor;
+	sem_ver->revision = v1_raw.version.revision;
+	sem_ver->build_num = v1_raw.version.build_num;
+	return 0;
 }
 
-static int boot_flag_read(int flag, u32_t bank_offs)
+int mcuboot_swap_type(void)
 {
-	u32_t offs;
-	int rc;
-	u8_t flag_val;
+#ifdef FLASH_AREA_IMAGE_SECONDARY
+	return boot_swap_type();
+#else
+	return BOOT_SWAP_TYPE_NONE;
+#endif
 
-	rc = boot_flag_offs(flag, bank_offs, &offs);
-	if (rc != 0) {
-		return rc;
-	}
-
-	rc = flash_read(flash_dev, offs, &flag_val, sizeof(flag_val));
-	if (rc != 0) {
-		return rc;
-	}
-
-	return flag_val;
-}
-
-static int boot_image_ok_read(u32_t bank_offs)
-{
-	return boot_flag_read(BOOT_FLAG_IMAGE_OK, bank_offs);
-}
-
-static int boot_image_ok_write(u32_t bank_offs)
-{
-	return boot_flag_write(BOOT_FLAG_IMAGE_OK, bank_offs);
-}
-
-static int boot_magic_write(u32_t bank_offs)
-{
-	u32_t offs;
-	int rc;
-
-	offs = MAGIC_OFFS(bank_offs);
-
-	rc = boot_flash_write(offs, boot_img_magic, BOOT_MAGIC_SZ);
-
-	return rc;
-}
-
-static int boot_magic_code_check(const u32_t *magic)
-{
-	int i;
-
-	if (memcmp(magic, boot_img_magic, sizeof(boot_img_magic)) == 0) {
-		return BOOT_MAGIC_GOOD;
-	}
-
-	for (i = 0; i < ARRAY_SIZE(boot_img_magic); i++) {
-		if (magic[i] != 0xffffffff) {
-			return BOOT_MAGIC_BAD;
-		}
-	}
-
-	return BOOT_MAGIC_UNSET;
-}
-
-static int boot_magic_state_read(u32_t bank_offs)
-{
-	u32_t magic[4];
-	u32_t offs;
-	int rc;
-
-	offs = MAGIC_OFFS(bank_offs);
-	rc = flash_read(flash_dev, offs, magic, sizeof(magic));
-	if (rc != 0) {
-		return rc;
-	}
-
-	return boot_magic_code_check(magic);
 }
 
 int boot_request_upgrade(int permanent)
 {
+#ifdef FLASH_AREA_IMAGE_SECONDARY
 	int rc;
 
-	rc = boot_magic_write(FLASH_BANK1_OFFSET);
-	if (rc == 0 && permanent) {
-		rc = boot_image_ok_write(FLASH_BANK1_OFFSET);
+	rc = boot_set_pending(permanent);
+	if (rc) {
+		return -EFAULT;
+	}
+#endif /* FLASH_AREA_IMAGE_SECONDARY */
+	return 0;
+}
+
+bool boot_is_img_confirmed(void)
+{
+	const struct flash_area *fa;
+	int rc;
+	uint8_t flag_val;
+
+	rc = flash_area_open(FLASH_AREA_IMAGE_PRIMARY, &fa);
+	if (rc) {
+		return false;
 	}
 
-	return rc;
+	rc = boot_read_image_ok(fa, &flag_val);
+	if (rc) {
+		return false;
+	}
+
+	return flag_val == BOOT_FLAG_SET;
 }
 
 int boot_write_img_confirmed(void)
 {
 	int rc;
 
-	switch (boot_magic_state_read(FLASH_BANK0_OFFSET)) {
-	case BOOT_MAGIC_GOOD:
-		/* Confirm needed; proceed. */
-		break;
-
-	case BOOT_MAGIC_UNSET:
-		/* Already confirmed. */
-		return 0;
-
-	case BOOT_MAGIC_BAD:
-		/* Unexpected state. */
-		return -EFAULT;
-	}
-
-	if (boot_image_ok_read(FLASH_BANK0_OFFSET) != BOOT_FLAG_UNSET) {
-		/* Already confirmed. */
-		return 0;
-	}
-
-	rc = boot_image_ok_write(FLASH_BANK0_OFFSET);
-
-	return rc;
-}
-
-int boot_erase_img_bank(u32_t bank_offset)
-{
-	int rc;
-
-	rc = flash_write_protection_set(flash_dev, false);
+	rc = boot_set_confirmed();
 	if (rc) {
-		return rc;
+		return -EIO;
 	}
 
-	rc = flash_erase(flash_dev, bank_offset, FLASH_BANK_SIZE);
-	if (rc) {
-		return rc;
-	}
-
-	rc = flash_write_protection_set(flash_dev, true);
-
-	return rc;
-}
-
-static int boot_init(struct device *dev)
-{
-	ARG_UNUSED(dev);
-	flash_dev = device_get_binding(FLASH_DRIVER_NAME);
-	if (!flash_dev) {
-		return -ENODEV;
-	}
 	return 0;
 }
 
-SYS_INIT(boot_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+int boot_erase_img_bank(uint8_t area_id)
+{
+	const struct flash_area *fa;
+	int rc;
+
+	rc = flash_area_open(area_id, &fa);
+	if (rc) {
+		return rc;
+	}
+
+	rc = flash_area_erase(fa, 0, fa->fa_size);
+
+	flash_area_close(fa);
+
+	return rc;
+}

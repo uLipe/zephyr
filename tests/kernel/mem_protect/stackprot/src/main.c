@@ -6,27 +6,22 @@
  */
 
 
-/**
- * @brief test Stack Protector feature using canary
- *
- * This is the test program to test stack protection using canary.
- *
- * The main thread starts a second thread, which generates a stack check
- * failure.
- * By design, the second thread will not complete its execution and
- * will not set ret to TC_FAIL.
- */
-
-#include <tc_util.h>
-
 #include <zephyr.h>
+#include <ztest.h>
 
 
-#define STACKSIZE       2048
-#define PRIORITY        5
+#define STACKSIZE       (2048 + CONFIG_TEST_EXTRA_STACKSIZE)
 
-static int count;
-static int ret = TC_PASS;
+ZTEST_BMEM static int count;
+ZTEST_BMEM static int ret = TC_PASS;
+
+void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *esf)
+{
+	if (reason != K_ERR_STACK_CHK_FAIL) {
+		printk("wrong error type\n");
+		k_fatal_halt(reason);
+	}
+}
 
 void check_input(const char *name, const char *input);
 
@@ -105,31 +100,51 @@ K_THREAD_STACK_DEFINE(alt_thread_stack_area, STACKSIZE);
 static struct k_thread alt_thread_data;
 
 /**
+ * @brief test Stack Protector feature using canary
  *
+ * @details This is the test program to test stack protection using canary.
+ * The main thread starts a second thread, which generates a stack check
+ * failure.
+ * By design, the second thread will not complete its execution and
+ * will not set ret to TC_FAIL.
  * This is the entry point to the test stack protection feature.
  * It starts the thread that tests stack protection, then prints out
  * a few messages before terminating.
  *
- * @return N/A
+ * @ingroup kernel_memprotect_tests
  */
 
-void main(void)
+void test_stackprot(void)
 {
-	TC_START("Test Stack Protection Canary\n");
-	TC_PRINT("Starts %s\n", __func__);
+	zassert_true(ret == TC_PASS, NULL);
+	print_loop(__func__);
+}
 
+/**
+ * @brief Test optional mechanism to detect stack overflow
+ *
+ * @details Test that the system provides an optional mechanism to detect
+ * when supervisor threads overflow stack memory buffer.
+ *
+ * @ingroup kernel_memprotect_tests
+ */
+void test_create_alt_thread(void)
+{
 	/* Start thread */
 	k_thread_create(&alt_thread_data, alt_thread_stack_area, STACKSIZE,
 			(k_thread_entry_t)alternate_thread, NULL, NULL, NULL,
-			K_PRIO_PREEMPT(PRIORITY), 0, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
-	if (ret == TC_FAIL) {
-		goto errorExit;
-	}
+	/* Note that this sleep is required on SMP platforms where
+	 * that thread will execute asynchronously!
+	 */
+	k_sleep(K_MSEC(100));
+}
 
-	print_loop(__func__);
-
-errorExit:
-	TC_END_RESULT(ret);
-	TC_END_REPORT(ret);
+void test_main(void)
+{
+	ztest_test_suite(stackprot,
+			 ztest_unit_test(test_create_alt_thread),
+			 ztest_user_unit_test(test_stackprot));
+	ztest_run_test_suite(stackprot);
 }

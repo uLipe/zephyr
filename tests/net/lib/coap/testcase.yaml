@@ -1,4 +1,7 @@
+common:
+  filter: TOOLCHAIN_HAS_NEWLIB == 1
 tests:
-  - test:
-      min_ram: 16
-      tags: net
+  net.coap.simple:
+    min_ram: 16
+    tags: net
+    depends_on: netif

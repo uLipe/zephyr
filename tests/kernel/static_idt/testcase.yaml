@@ -1,4 +1,0 @@
-tests:
-  - test:
-      arch_whitelist: x86
-      tags: bat_commit core ignore_faults

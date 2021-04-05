@@ -4,27 +4,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _GPIO_DW_H_
-#define _GPIO_DW_H_
+#ifndef ZEPHYR_DRIVERS_GPIO_GPIO_DW_H_
+#define ZEPHYR_DRIVERS_GPIO_GPIO_DW_H_
 
 #include <zephyr/types.h>
-#include <gpio.h>
+#include <drivers/gpio.h>
 #include "gpio_dw_registers.h"
-
-#ifdef CONFIG_PCI
-#include <pci/pci.h>
-#include <pci/pci_mgr.h>
-#endif /* CONFIG_PCI */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef void (*gpio_config_irq_t)(struct device *port);
+typedef void (*gpio_config_irq_t)(const struct device *port);
 
 struct gpio_dw_config {
-	u32_t bits;
-	u32_t irq_num; /* set to 0 if GPIO port cannot interrupt */
+	/* gpio_driver_config needs to be first */
+	struct gpio_driver_config common;
+	uint32_t bits;
+	uint32_t irq_num; /* set to 0 if GPIO port cannot interrupt */
 	gpio_config_irq_t config_func;
 
 #ifdef CONFIG_GPIO_DW_SHARED_IRQ
@@ -37,17 +34,15 @@ struct gpio_dw_config {
 };
 
 struct gpio_dw_runtime {
-	u32_t base_addr;
-#ifdef CONFIG_PCI
-	struct pci_dev_info  pci_dev;
-#endif /* CONFIG_PCI */
-
+	/* gpio_driver_data needs to be first */
+	struct gpio_driver_data common;
+	uint32_t base_addr;
 #ifdef CONFIG_GPIO_DW_CLOCK_GATE
-	struct device *clock;
+	const struct device *clock;
 #endif
 	sys_slist_t callbacks;
-#ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-	u32_t device_power_state;
+#ifdef CONFIG_PM_DEVICE
+	uint32_t device_power_state;
 #endif
 };
 
@@ -55,4 +50,4 @@ struct gpio_dw_runtime {
 }
 #endif
 
-#endif /* _GPIO_DW_H_ */
+#endif /* ZEPHYR_DRIVERS_GPIO_GPIO_DW_H_ */

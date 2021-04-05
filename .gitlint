@@ -1,6 +1,6 @@
 # All these sections are optional, edit this file as you like.
 [general]
-ignore=title-trailing-punctuation, T3, title-max-length, T1
+ignore=title-trailing-punctuation, T3, title-max-length, T1, body-hard-tab, B3, B1
 # verbosity should be a value between 1 and 3, the commandline -v flags take precedence over this
 verbosity = 3
 # By default gitlint will ignore merge commits. Set to 'false' to disable.
@@ -13,13 +13,16 @@ debug = false
 extra-path=scripts/gitlint
 
 [title-max-length-no-revert]
-line-length=72
+line-length=75
+
+[body-min-line-count]
+min-line-count=1
 
 [body-max-line-count]
 max-line-count=200
 
 [title-starts-with-subsystem]
-regex = ^(([^:]+):)(\s([^:]+):)*\s(.+)$
+regex = ^(?!subsys:)(([^:]+):)(\s([^:]+):)*\s(.+)$
 
 [title-must-not-contain-word]
 # Comma-separated list of words that should not occur in the title. Matching is case

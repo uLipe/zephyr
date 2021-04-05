@@ -32,6 +32,11 @@
  *
  *    __<structure>_<member>_OFFSET
  *
+ * The macro "GEN_NAMED_OFFSET_SYM(structure, member, name)" is also provided
+ * to create the symbol with the following form:
+ *
+ *    __<structure>_<name>_OFFSET
+ *
  * This header also defines the GEN_ABSOLUTE_SYM macro to simply define an
  * absolute symbol, irrespective of whether the value represents a structure
  * or offset.
@@ -68,8 +73,8 @@
  * 0000000c A ___kernel_t_idle_OFFSET
  */
 
-#ifndef _GEN_OFFSET_H
-#define _GEN_OFFSET_H
+#ifndef ZEPHYR_KERNEL_INCLUDE_GEN_OFFSET_H_
+#define ZEPHYR_KERNEL_INCLUDE_GEN_OFFSET_H_
 
 #include <toolchain.h>
 #include <stddef.h>
@@ -79,4 +84,7 @@
 #define GEN_OFFSET_SYM(S, M) \
 	GEN_ABSOLUTE_SYM(__##S##_##M##_##OFFSET, offsetof(S, M))
 
-#endif /* _GEN_OFFSET_H */
+#define GEN_NAMED_OFFSET_SYM(S, M, N) \
+	GEN_ABSOLUTE_SYM(__##S##_##N##_##OFFSET, offsetof(S, M))
+
+#endif /* ZEPHYR_KERNEL_INCLUDE_GEN_OFFSET_H_ */

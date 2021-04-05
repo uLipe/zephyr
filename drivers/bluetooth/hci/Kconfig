@@ -1,19 +1,15 @@
-# Kconfig - Bluetooth drivers configuration options
+# Bluetooth drivers configuration options
 
-#
 # Copyright (c) 2016 Intel Corporation
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 comment "Bluetooth HCI Driver Options"
 
 config BT_UART
 	bool
 
-choice
+choice BT_HCI_BUS_TYPE
 	prompt "Bluetooth HCI driver"
-	default BT_H4
 
 config BT_H4
 	bool "H:4 UART"
@@ -34,6 +30,12 @@ config BT_H5
 	  Bluetooth three-wire (H:5) UART driver. Implementation of HCI
 	  Three-Wire UART Transport Layer.
 
+config BT_RPMSG
+	bool "HCI using RPMsg"
+	help
+	  Bluetooth HCI driver for communication with another CPU
+	  using RPMsg framework.
+
 config BT_SPI
 	bool "SPI HCI"
 	depends on SPI
@@ -44,6 +46,23 @@ config BT_SPI
 	  additional platform specific knowledge may need to be added as
 	  devices are.
 
+config BT_STM32_IPM
+	bool "IPM HCI"
+	select USE_STM32_HAL_CORTEX
+	select HAS_STM32LIB
+	help
+	  TODO
+
+config BT_USERCHAN
+	bool "HCI User Channel based driver"
+	depends on BOARD_NATIVE_POSIX
+	help
+	  This driver provides access to the local Linux host's Bluetooth
+	  adapter using a User Channel HCI socket to the Linux kernel. It
+	  is only intended to be used with the native POSIX build of Zephyr.
+	  The Bluetooth adapter must be powered off in order for Zephyr to
+	  be able to use it.
+
 config BT_NO_DRIVER
 	bool "No default HCI driver"
 	help
@@ -52,77 +71,69 @@ config BT_NO_DRIVER
 
 endchoice
 
-if !HAS_DTS
+# Workaround for not being able to have commas in macro arguments
+DT_CHOSEN_Z_BT_UART := zephyr,bt-uart
+
 config BT_UART_ON_DEV_NAME
 	string "Device Name of UART Device for Bluetooth"
+	default "$(dt_chosen_label,$(DT_CHOSEN_Z_BT_UART))" if HAS_DTS
 	default "UART_0"
 	depends on BT_UART
 	help
 	  This option specifies the name of UART device to be used
 	  for Bluetooth.
-endif
-
-config BT_SPI_DEV_NAME
-	string "Device Name of SPI Device for Bluetooth"
-	default "SPI_0"
-	depends on BT_SPI
-	help
-	  This option specifies the name of SPI device to be used for Bluetooth.
-	  On the controller side, this SPI device is used to encapsulate the
-	  RAW HCI frames to send further up the stack. On the BLE stack side,
-	  this device is used to reply back with HCI frames that are sent over
-	  the air.
 
 if BT_SPI
 
-config BT_SPI_BLUENRG
-	bool "Enable compatibility with BlueNRG-based devices"
-	default n
+config BT_SPI_INIT_PRIORITY
+	int "BT SPI init priority"
+	default 75
+
+config BT_BLUENRG_ACI
+	bool "Enable ACI message with with BlueNRG-based devices"
 	help
 	  Enable support for devices compatible with the BlueNRG Bluetooth
-	  Stack. Current driver supports: ST X-NUCLEO BLE series.
+	  Stack. Current driver supports: ST BLUENRG-MS.
 
-config BT_SPI_CHIP_SELECT_DEV_NAME
-	string "Chip Select (CS) line driver name"
-	depends on BT_SPI_BLUENRG
+config BT_SPI_BLUENRG
+	bool "Enable compatibility with BlueNRG-based devices"
 	help
-	  This option specifies the name of GPIO driver controlling
-	  the Chip Select (CS) line.
-
-config BT_SPI_IRQ_DEV_NAME
-	string "IRQ line driver name"
-	help
-	  This option specifies the name of GPIO driver controlling
-	  the chip's IRQ line.
-
-config BT_SPI_RESET_DEV_NAME
-	string "Reset line driver name"
-	help
-	  This option specifies the name of GPIO driver controlling
-	  the chip's Reset line.
-
-config BT_SPI_CHIP_SELECT_PIN
-	int "SPI Chip Select (CS) line number"
-	depends on BT_SPI_BLUENRG
-	help
-	  This option specifies the Chip Select (CS) line number on the SPI
-	  device
-
-config BT_SPI_IRQ_PIN
-	int "SPI IRQ line number"
-	help
-	  This option specifies the IRQ line number on the SPI device
-
-config BT_SPI_RESET_PIN
-	int "SPI Reset line number"
-	help
-	  This option specifies the Reset line number on the SPI device
-
-config BT_SPI_MAX_CLK_FREQ
-	int "Maximum clock frequency for the HCI SPI interface"
-	default 5000000
-	help
-	  This option specifies the maximum clock rate the HCI SPI
-	  interface is capable of running at.
+	  Enable support for devices compatible with the BlueNRG Bluetooth
+	  Stack. Current driver supports: ST BLUENRG-MS.
 
 endif # BT_SPI
+
+config BT_STM32_IPM_RX_STACK_SIZE
+	int "STM32 IPM stack size for RX thread"
+	depends on BT_STM32_IPM
+	default 512
+
+config BT_RPMSG_NRF53
+	bool "nRF53 configuration of RPMsg"
+	default y if SOC_NRF5340_CPUAPP
+	depends on BT_RPMSG
+	select RPMSG_SERVICE
+	help
+	  Enable RPMsg configuration for nRF53. Two channels of the IPM driver
+	  are used in the HCI driver: channel 0 for TX and channel 1 for RX.
+
+if BT_RPMSG_NRF53
+
+choice RPMSG_SERVICE_MODE
+	default RPMSG_SERVICE_MODE_MASTER
+endchoice
+
+endif # BT_RPMSG_NRF53
+
+config BT_DRIVER_QUIRK_NO_AUTO_DLE
+	bool "Host auto-initiated Data Length Update quirk"
+	depends on BT_AUTO_DATA_LEN_UPDATE
+	default y if BT_RPMSG_NRF53
+	help
+	  Enable the quirk wherein BT Host stack will auto-initiate Data Length
+	  Update procedure for new connections for controllers that do not
+	  auto-initiate the procedure if the default data length parameters are
+	  not equal to the initial parameters.
+
+	  This has to be enabled when the BLE controller connected is Zephyr
+	  open source controller.

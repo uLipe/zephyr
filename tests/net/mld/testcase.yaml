@@ -1,4 +1,10 @@
+common:
+  tags: net mld
+  depends_on: netif
 tests:
-  - test:
-      arch_whitelist: x86
-      tags: net
+  net.mld:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_COOPERATIVE=y
+  net.mld.preempt:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_PREEMPTIVE=y

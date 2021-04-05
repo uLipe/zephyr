@@ -1,43 +1,30 @@
-#
 # Copyright (c) 2017, NXP
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: i.MX GPIO
-version: 0.1
 
-description: >
-    This is a representation of the i.MX GPIO nodes
+description: i.MX GPIO node
+
+compatible: "nxp,imx-gpio"
+
+include: [gpio-controller.yaml, base.yaml]
 
 properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "nxp,imx-gpio"
-
     reg:
-      type: int
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: compound
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
 
     label:
-      type: string
-      category: required
-      description: Human readable string describing the device (used by Zephyr for API name)
-      generation: define
+      required: true
 
-cell_string: GPIO
+    rdc:
+     type: int
+     required: false
+     description: Set the RDC permission for this peripheral
 
-"#cells":
+    "#gpio-cells":
+      const: 2
+
+gpio-cells:
   - pin
   - flags
-...

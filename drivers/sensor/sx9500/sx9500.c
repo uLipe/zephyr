@@ -6,18 +6,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT semtech_sx9500
+
 #include <errno.h>
 
 #include <kernel.h>
-#include <i2c.h>
-#include <sensor.h>
+#include <drivers/i2c.h>
+#include <drivers/sensor.h>
 #include <init.h>
-#include <gpio.h>
-#include <misc/__assert.h>
+#include <drivers/gpio.h>
+#include <sys/__assert.h>
+#include <logging/log.h>
 
 #include "sx9500.h"
 
-static u8_t sx9500_reg_defaults[] = {
+LOG_MODULE_REGISTER(SX9500, CONFIG_SENSOR_LOG_LEVEL);
+
+static uint8_t sx9500_reg_defaults[] = {
 	/*
 	 * First number is register address to write to.  The chip
 	 * auto-increments the address for subsequent values in a single
@@ -30,7 +35,7 @@ static u8_t sx9500_reg_defaults[] = {
 	0x40,	/* Doze enabled, 2x scan period doze, no raw filter. */
 	0x30,	/* Average threshold. */
 	0x0f,	/* Debouncer off, lowest average negative filter,
-		 * highest average postive filter.
+		 * highest average positive filter.
 		 */
 	0x0e,	/* Proximity detection threshold: 280 */
 	0x00,	/* No automatic compensation, compensate each pin
@@ -40,9 +45,10 @@ static u8_t sx9500_reg_defaults[] = {
 	0x00,	/* No stuck timeout, no periodic compensation. */
 };
 
-static int sx9500_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int sx9500_sample_fetch(const struct device *dev,
+			       enum sensor_channel chan)
 {
-	struct sx9500_data *data = (struct sx9500_data *) dev->driver_data;
+	struct sx9500_data *data = (struct sx9500_data *) dev->data;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_PROX);
 
@@ -50,11 +56,11 @@ static int sx9500_sample_fetch(struct device *dev, enum sensor_channel chan)
 				 SX9500_REG_STAT, &data->prox_stat);
 }
 
-static int sx9500_channel_get(struct device *dev,
+static int sx9500_channel_get(const struct device *dev,
 			      enum sensor_channel chan,
 			      struct sensor_value *val)
 {
-	struct sx9500_data *data = (struct sx9500_data *) dev->driver_data;
+	struct sx9500_data *data = (struct sx9500_data *) dev->data;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_PROX);
 
@@ -73,10 +79,10 @@ static const struct sensor_driver_api sx9500_api_funcs = {
 #endif
 };
 
-static int sx9500_init_chip(struct device *dev)
+static int sx9500_init_chip(const struct device *dev)
 {
-	struct sx9500_data *data = (struct sx9500_data *) dev->driver_data;
-	u8_t val;
+	struct sx9500_data *data = (struct sx9500_data *) dev->data;
+	uint8_t val;
 
 	if (i2c_write(data->i2c_master, sx9500_reg_defaults,
 		      sizeof(sx9500_reg_defaults), data->i2c_slave_addr)
@@ -103,35 +109,34 @@ static int sx9500_init_chip(struct device *dev)
 				  1 << CONFIG_SX9500_PROX_CHANNEL);
 }
 
-int sx9500_init(struct device *dev)
+int sx9500_init(const struct device *dev)
 {
-	struct sx9500_data *data = dev->driver_data;
+	struct sx9500_data *data = dev->data;
 
-	data->i2c_master = device_get_binding(CONFIG_SX9500_I2C_DEV_NAME);
+	data->i2c_master = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (!data->i2c_master) {
-		SYS_LOG_DBG("sx9500: i2c master not found: %s",
-		    CONFIG_SX9500_I2C_DEV_NAME);
+		LOG_DBG("sx9500: i2c master not found: %s",
+		    DT_INST_BUS_LABEL(0));
 		return -EINVAL;
 	}
 
-	data->i2c_slave_addr = CONFIG_SX9500_I2C_ADDR;
+	data->i2c_slave_addr = DT_INST_REG_ADDR(0);
 
 	if (sx9500_init_chip(dev) < 0) {
-		SYS_LOG_DBG("sx9500: failed to initialize chip");
+		LOG_DBG("sx9500: failed to initialize chip");
 		return -EINVAL;
 	}
 
 	if (sx9500_setup_interrupt(dev) < 0) {
-		SYS_LOG_DBG("sx9500: failed to setup interrupt");
+		LOG_DBG("sx9500: failed to setup interrupt");
 		return -EINVAL;
 	}
-
-	dev->driver_api = &sx9500_api_funcs;
 
 	return 0;
 }
 
 struct sx9500_data sx9500_data;
 
-DEVICE_INIT(sx9500, CONFIG_SX9500_DEV_NAME, sx9500_init, &sx9500_data,
-	    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY);
+DEVICE_DT_INST_DEFINE(0, sx9500_init, device_pm_control_nop, &sx9500_data,
+		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
+		    &sx9500_api_funcs);

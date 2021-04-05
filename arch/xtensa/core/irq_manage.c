@@ -5,9 +5,8 @@
 
 #include <zephyr/types.h>
 #include <stdio.h>
-#include <xtensa_api.h>
-#include <kernel_arch_data.h>
-#include <misc/__assert.h>
+#include <arch/xtensa/irq.h>
+#include <sys/__assert.h>
 /*
  * @internal
  *
@@ -27,7 +26,7 @@
  * @return N/A
  */
 
-void _irq_priority_set(unsigned int irq, unsigned int prio, u32_t flags)
+void z_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags)
 {
 	__ASSERT(prio < XCHAL_EXCM_LEVEL + 1,
 		 "invalid priority %d! values must be less than %d\n",
@@ -36,3 +35,26 @@ void _irq_priority_set(unsigned int irq, unsigned int prio, u32_t flags)
 	 * Xtensa
 	 */
 }
+
+#ifdef CONFIG_DYNAMIC_INTERRUPTS
+#ifndef CONFIG_MULTI_LEVEL_INTERRUPTS
+int z_arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
+			       void (*routine)(const void *parameter),
+			       const void *parameter, uint32_t flags)
+{
+	ARG_UNUSED(flags);
+	ARG_UNUSED(priority);
+
+	z_isr_install(irq, routine, parameter);
+	return irq;
+}
+#else /* !CONFIG_MULTI_LEVEL_INTERRUPTS */
+int z_arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
+			       void (*routine)(const void *parameter),
+			       const void *parameter, uint32_t flags)
+{
+	return z_soc_irq_connect_dynamic(irq, priority, routine, parameter,
+					 flags);
+}
+#endif /* !CONFIG_MULTI_LEVEL_INTERRUPTS */
+#endif /* CONFIG_DYNAMIC_INTERRUPTS */

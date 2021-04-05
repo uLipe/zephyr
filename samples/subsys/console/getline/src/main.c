@@ -6,12 +6,14 @@
 
 #include <string.h>
 #include <zephyr.h>
-#include <misc/printk.h>
-#include <console.h>
+#include <sys/printk.h>
+#include <console/console.h>
 
 void main(void)
 {
 	console_getline_init();
+
+	printk("Enter a line\n");
 
 	while (1) {
 		char *s = console_getline();

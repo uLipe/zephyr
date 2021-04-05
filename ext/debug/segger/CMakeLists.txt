@@ -1,4 +1,0 @@
-
-zephyr_include_directories(.)
-zephyr_sources_ifdef(CONFIG_HAS_SEGGER_RTT rtt/SEGGER_RTT.c)
-zephyr_sources_ifdef(CONFIG_HAS_SEGGER_SYSTEMVIEW systemview/SEGGER_SYSVIEW.c)

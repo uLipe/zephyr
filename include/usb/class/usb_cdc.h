@@ -18,14 +18,11 @@
  * Header is limited to ACM and ECM Subclasses.
  */
 
-#ifndef __USB_CDC_H__
-#define __USB_CDC_H__
+#ifndef ZEPHYR_INCLUDE_USB_CLASS_USB_CDC_H_
+#define ZEPHYR_INCLUDE_USB_CLASS_USB_CDC_H_
 
 /** CDC Specification release number in BCD format */
 #define CDC_SRN_1_20			0x0120
-
-/** CDC Class Code */
-#define COMMUNICATION_DEVICE_CLASS	0x02
 
 /** Communications Class Subclass Codes */
 #define ACM_SUBCLASS			0x02
@@ -43,13 +40,6 @@
 #define DATA_INTERFACE_CLASS		0x0A
 
 /**
- * @brief Values for the bDescriptorType Field
- * @note CDC120-20101103-track.pdf, 5.2.3, Table 12
- */
-#define CS_INTERFACE			0x24
-#define CS_ENDPOINT			0x25
-
-/**
  * @brief bDescriptor SubType for Communications
  * Class Functional Descriptors
  * @note CDC120-20101103-track.pdf, 5.2.3, Table 13
@@ -65,6 +55,8 @@
  * for ACM devices
  * @note PSTN120.pdf, 6.3, Table 13
  */
+#define CDC_SEND_ENC_CMD		0x00
+#define CDC_GET_ENC_RSP			0x01
 #define SET_LINE_CODING			0x20
 #define GET_LINE_CODING			0x21
 #define SET_CONTROL_LINE_STATE		0x22
@@ -73,11 +65,21 @@
 #define SET_CONTROL_LINE_STATE_RTS	0x02
 #define SET_CONTROL_LINE_STATE_DTR	0x01
 
+/** Enhance enum uart_line_ctrl with CDC specific values */
+#define USB_CDC_LINE_CTRL_BAUD_RATE	UART_LINE_CTRL_BAUD_RATE
+#define USB_CDC_LINE_CTRL_DCD		UART_LINE_CTRL_DCD
+#define USB_CDC_LINE_CTRL_DSR		UART_LINE_CTRL_DSR
+#define USB_CDC_LINE_CTRL_BREAK		BIT(5)
+#define USB_CDC_LINE_CTRL_RING_SIGNAL	BIT(6)
+#define USB_CDC_LINE_CTRL_FRAMING	BIT(7)
+#define USB_CDC_LINE_CTRL_PARITY	BIT(8)
+#define USB_CDC_LINE_CTRL_OVER_RUN	BIT(9)
+
 /** UART State Bitmap Values */
-#define SERIAL_STATE_OVERRUN		0x40
+#define SERIAL_STATE_OVER_RUN		0x40
 #define SERIAL_STATE_PARITY		0x20
 #define SERIAL_STATE_FRAMING		0x10
-#define SERIAL_STATE_RING		0x08
+#define SERIAL_STATE_RING_SIGNAL	0x08
 #define SERIAL_STATE_BREAK		0x04
 #define SERIAL_STATE_TX_CARRIER		0x02
 #define SERIAL_STATE_RX_CARRIER		0x01
@@ -101,66 +103,66 @@
 
 /** Header Functional Descriptor */
 struct cdc_header_descriptor {
-	u8_t bFunctionLength;
-	u8_t bDescriptorType;
-	u8_t bDescriptorSubtype;
-	u16_t bcdCDC;
+	uint8_t bFunctionLength;
+	uint8_t bDescriptorType;
+	uint8_t bDescriptorSubtype;
+	uint16_t bcdCDC;
 } __packed;
 
 /** Union Interface Functional Descriptor */
 struct cdc_union_descriptor {
-	u8_t bFunctionLength;
-	u8_t bDescriptorType;
-	u8_t bDescriptorSubtype;
-	u8_t bControlInterface;
-	u8_t bSubordinateInterface0;
+	uint8_t bFunctionLength;
+	uint8_t bDescriptorType;
+	uint8_t bDescriptorSubtype;
+	uint8_t bControlInterface;
+	uint8_t bSubordinateInterface0;
 } __packed;
 
 /** Call Management Functional Descriptor */
 struct cdc_cm_descriptor {
-	u8_t bFunctionLength;
-	u8_t bDescriptorType;
-	u8_t bDescriptorSubtype;
-	u8_t bmCapabilities;
-	u8_t bDataInterface;
+	uint8_t bFunctionLength;
+	uint8_t bDescriptorType;
+	uint8_t bDescriptorSubtype;
+	uint8_t bmCapabilities;
+	uint8_t bDataInterface;
 } __packed;
 
 /** Abstract Control Management Functional Descriptor */
 struct cdc_acm_descriptor {
-	u8_t bFunctionLength;
-	u8_t bDescriptorType;
-	u8_t bDescriptorSubtype;
-	u8_t bmCapabilities;
+	uint8_t bFunctionLength;
+	uint8_t bDescriptorType;
+	uint8_t bDescriptorSubtype;
+	uint8_t bmCapabilities;
 } __packed;
 
 /** Data structure for GET_LINE_CODING / SET_LINE_CODING class requests */
 struct cdc_acm_line_coding {
-	u32_t dwDTERate;
-	u8_t bCharFormat;
-	u8_t bParityType;
-	u8_t bDataBits;
+	uint32_t dwDTERate;
+	uint8_t bCharFormat;
+	uint8_t bParityType;
+	uint8_t bDataBits;
 } __packed;
 
 /** Data structure for the notification about SerialState */
 struct cdc_acm_notification {
-	u8_t bmRequestType;
-	u8_t bNotificationType;
-	u16_t wValue;
-	u16_t wIndex;
-	u16_t wLength;
-	u16_t data;
+	uint8_t bmRequestType;
+	uint8_t bNotificationType;
+	uint16_t wValue;
+	uint16_t wIndex;
+	uint16_t wLength;
+	uint16_t data;
 } __packed;
 
 /** Ethernet Networking Functional Descriptor */
 struct cdc_ecm_descriptor {
-	u8_t bFunctionLength;
-	u8_t bDescriptorType;
-	u8_t bDescriptorSubtype;
-	u8_t iMACAddress;
-	u32_t bmEthernetStatistics;
-	u16_t wMaxSegmentSize;
-	u16_t wNumberMCFilters;
-	u8_t bNumberPowerFilters;
+	uint8_t bFunctionLength;
+	uint8_t bDescriptorType;
+	uint8_t bDescriptorSubtype;
+	uint8_t iMACAddress;
+	uint32_t bmEthernetStatistics;
+	uint16_t wMaxSegmentSize;
+	uint16_t wNumberMCFilters;
+	uint8_t bNumberPowerFilters;
 } __packed;
 
-#endif /* __USB_CDC_H__ */
+#endif /* ZEPHYR_INCLUDE_USB_CLASS_USB_CDC_H_ */

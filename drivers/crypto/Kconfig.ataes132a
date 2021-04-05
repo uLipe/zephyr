@@ -1,15 +1,11 @@
-# Kconfig - Atmel ATAES132A configuration options
+# Atmel ATAES132A configuration options
 
-#
 # Copyright (c) 2017 Intel Corporation
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 menuconfig CRYPTO_ATAES132A
 	bool "Atmel ATAES132A 32k AES Serial EEPROM support"
 	depends on I2C
-	default n
 	help
 	  Enable Atmel ATAES132A 32k AES Serial EEPROM support.
 

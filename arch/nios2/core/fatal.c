@@ -7,104 +7,41 @@
 #include <kernel.h>
 #include <arch/cpu.h>
 #include <kernel_structs.h>
-#include <misc/printk.h>
 #include <inttypes.h>
+#include <logging/log.h>
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
-const NANO_ESF _default_esf = {
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad,
-	0xdeadbaad
-};
-
-/**
- *
- * @brief Kernel fatal error handler
- *
- * This routine is called when a fatal error condition is detected by either
- * hardware or software.
- *
- * The caller is expected to always provide a usable ESF.  In the event that the
- * fatal error does not have a hardware generated ESF, the caller should either
- * create its own or call _Fault instead.
- *
- * @param reason the reason that the handler was called
- * @param pEsf pointer to the exception stack frame
- *
- * @return This function does not return.
- */
-FUNC_NORETURN void _NanoFatalErrorHandler(unsigned int reason,
-					  const NANO_ESF *esf)
+FUNC_NORETURN void z_nios2_fatal_error(unsigned int reason,
+				       const z_arch_esf_t *esf)
 {
-#ifdef CONFIG_PRINTK
-	switch (reason) {
-	case _NANO_ERR_CPU_EXCEPTION:
-	case _NANO_ERR_SPURIOUS_INT:
-		break;
-
-	case _NANO_ERR_ALLOCATION_FAIL:
-		printk("**** Kernel Allocation Failure! ****\n");
-		break;
-
-	case _NANO_ERR_KERNEL_OOPS:
-		printk("***** Kernel OOPS! *****\n");
-		break;
-
-	case _NANO_ERR_KERNEL_PANIC:
-		printk("***** Kernel Panic! *****\n");
-		break;
-
-#ifdef CONFIG_STACK_SENTINEL
-	case _NANO_ERR_STACK_CHK_FAIL:
-		printk("***** Stack overflow *****\n");
-		break;
-#endif
-	default:
-		printk("**** Unknown Fatal Error %u! ****\n", reason);
-		break;
+	if (esf != NULL) {
+		/* Subtract 4 from EA since we added 4 earlier so that the
+		 * faulting instruction isn't retried.
+		 *
+		 * TODO: Only caller-saved registers get saved upon exception
+		 * entry.  We may want to introduce a config option to save and
+		 * dump all registers, at the expense of some stack space.
+		 */
+		LOG_ERR("Faulting instruction: 0x%08x", esf->instr - 4);
+		LOG_ERR("  r1: 0x%08x  r2: 0x%08x  r3: 0x%08x  r4: 0x%08x",
+			esf->r1, esf->r2, esf->r3, esf->r4);
+		LOG_ERR("  r5: 0x%08x  r6: 0x%08x  r7: 0x%08x  r8: 0x%08x",
+			esf->r5, esf->r6, esf->r7, esf->r8);
+		LOG_ERR("  r9: 0x%08x r10: 0x%08x r11: 0x%08x r12: 0x%08x",
+			esf->r9, esf->r10, esf->r11, esf->r12);
+		LOG_ERR(" r13: 0x%08x r14: 0x%08x r15: 0x%08x  ra: 0x%08x",
+			esf->r13, esf->r14, esf->r15, esf->ra);
+		LOG_ERR("estatus: %08x", esf->estatus);
 	}
 
-	/* Subtract 4 from EA since we added 4 earlier so that the faulting
-	 * instruction isn't retried.
-	 *
-	 * TODO: Only caller-saved registers get saved upon exception entry.
-	 * We may want to introduce a config option to save and dump all
-	 * registers, at the expense of some stack space.
-	 */
-	printk("Current thread ID: %p\n"
-	       "Faulting instruction: 0x%x\n"
-	       "  r1: 0x%x  r2: 0x%x  r3: 0x%x  r4: 0x%x\n"
-	       "  r5: 0x%x  r6: 0x%x  r7: 0x%x  r8: 0x%x\n"
-	       "  r9: 0x%x r10: 0x%x r11: 0x%x r12: 0x%x\n"
-	       " r13: 0x%x r14: 0x%x r15: 0x%x  ra: 0x%x\n"
-	       "estatus: %x\n", k_current_get(), esf->instr - 4,
-	       esf->r1, esf->r2, esf->r3, esf->r4,
-	       esf->r5, esf->r6, esf->r7, esf->r8,
-	       esf->r9, esf->r10, esf->r11, esf->r12,
-	       esf->r13, esf->r14, esf->r15, esf->ra,
-	       esf->estatus);
-#endif
-
-	_SysFatalErrorHandler(reason, esf);
+	z_fatal_error(reason, esf);
+	CODE_UNREACHABLE;
 }
 
-#if defined(CONFIG_EXTRA_EXCEPTION_INFO) && defined(CONFIG_PRINTK) \
+#if defined(CONFIG_EXTRA_EXCEPTION_INFO) && \
+	(defined(CONFIG_PRINTK) || defined(CONFIG_LOG)) \
 	&& defined(ALT_CPU_HAS_EXTRA_EXCEPTION_INFO)
-static char *cause_str(u32_t cause_code)
+static char *cause_str(uint32_t cause_code)
 {
 	switch (cause_code) {
 	case 0:
@@ -163,90 +100,43 @@ static char *cause_str(u32_t cause_code)
 }
 #endif
 
-FUNC_NORETURN void _Fault(const NANO_ESF *esf)
+FUNC_NORETURN void _Fault(const z_arch_esf_t *esf)
 {
-#ifdef CONFIG_PRINTK
+#if defined(CONFIG_PRINTK) || defined(CONFIG_LOG)
 	/* Unfortunately, completely unavailable on Nios II/e cores */
 #ifdef ALT_CPU_HAS_EXTRA_EXCEPTION_INFO
-	u32_t exc_reg, badaddr_reg, eccftl;
+	uint32_t exc_reg, badaddr_reg, eccftl;
 	enum nios2_exception_cause cause;
 
-	exc_reg = _nios2_creg_read(NIOS2_CR_EXCEPTION);
+	exc_reg = z_nios2_creg_read(NIOS2_CR_EXCEPTION);
 
 	/* Bit 31 indicates potentially fatal ECC error */
-	eccftl = (exc_reg & NIOS2_EXCEPTION_REG_ECCFTL_MASK) != 0;
+	eccftl = (exc_reg & NIOS2_EXCEPTION_REG_ECCFTL_MASK) != 0U;
 
 	/* Bits 2-6 contain the cause code */
 	cause = (exc_reg & NIOS2_EXCEPTION_REG_CAUSE_MASK)
 		 >> NIOS2_EXCEPTION_REG_CAUSE_OFST;
 
-	printk("Exception cause: %d ECCFTL: 0x%x\n", cause, eccftl);
+	LOG_ERR("Exception cause: %d ECCFTL: 0x%x", cause, eccftl);
 #if CONFIG_EXTRA_EXCEPTION_INFO
-	printk("reason: %s\n", cause_str(cause));
+	LOG_ERR("reason: %s", cause_str(cause));
 #endif
 	if (BIT(cause) & NIOS2_BADADDR_CAUSE_MASK) {
-		badaddr_reg = _nios2_creg_read(NIOS2_CR_BADADDR);
-		printk("Badaddr: 0x%x\n", badaddr_reg);
+		badaddr_reg = z_nios2_creg_read(NIOS2_CR_BADADDR);
+		LOG_ERR("Badaddr: 0x%x", badaddr_reg);
 	}
 #endif /* ALT_CPU_HAS_EXTRA_EXCEPTION_INFO */
-#endif /* CONFIG_PRINTK */
+#endif /* CONFIG_PRINTK || CONFIG_LOG */
 
-	_NanoFatalErrorHandler(_NANO_ERR_CPU_EXCEPTION, esf);
+	z_nios2_fatal_error(K_ERR_CPU_EXCEPTION, esf);
 }
-
-
-/**
- *
- * @brief Fatal error handler
- *
- * This routine implements the corrective action to be taken when the system
- * detects a fatal error.
- *
- * This sample implementation attempts to abort the current thread and allow
- * the system to continue executing, which may permit the system to continue
- * functioning with degraded capabilities.
- *
- * System designers may wish to enhance or substitute this sample
- * implementation to take other actions, such as logging error (or debug)
- * information to a persistent repository and/or rebooting the system.
- *
- * @param reason the fatal error reason
- * @param pEsf pointer to exception stack frame
- *
- * @return N/A
- */
-FUNC_NORETURN __weak void _SysFatalErrorHandler(unsigned int reason,
-						const NANO_ESF *pEsf)
-{
-	ARG_UNUSED(pEsf);
-
-#if !defined(CONFIG_SIMPLE_FATAL_ERROR_HANDLER)
-#ifdef CONFIG_STACK_SENTINEL
-	if (reason == _NANO_ERR_STACK_CHK_FAIL) {
-		goto hang_system;
-	}
-#endif
-	if (reason == _NANO_ERR_KERNEL_PANIC) {
-		goto hang_system;
-	}
-	if (k_is_in_isr() || _is_thread_essential()) {
-		printk("Fatal fault in %s! Spinning...\n",
-		       k_is_in_isr() ? "ISR" : "essential thread");
-		goto hang_system;
-	}
-	printk("Fatal fault in thread %p! Aborting.\n", _current);
-	k_thread_abort(_current);
-
-hang_system:
-#else
-	ARG_UNUSED(reason);
-#endif
 
 #ifdef ALT_CPU_HAS_DEBUG_STUB
-	_nios2_break();
-#endif
-	for (;;) {
-		k_cpu_idle();
-	}
+FUNC_NORETURN void arch_system_halt(unsigned int reason)
+{
+	ARG_UNUSED(reason);
+
+	z_nios2_break();
 	CODE_UNREACHABLE;
 }
+#endif

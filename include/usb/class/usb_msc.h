@@ -43,11 +43,10 @@
  * Header is limited to Bulk-Only Transfer protocol.
  */
 
-#ifndef __USB_MSC_H__
-#define __USB_MSC_H__
+#ifndef ZEPHYR_INCLUDE_USB_CLASS_USB_MSC_H_
+#define ZEPHYR_INCLUDE_USB_CLASS_USB_MSC_H_
 
-/** MSC Class, Subclass and Protocol Codes */
-#define MASS_STORAGE_CLASS		0x08
+/** MSC Subclass and Protocol Codes */
 #define SCSI_TRANSPARENT_SUBCLASS	0x06
 #define BULK_ONLY_TRANSPORT_PROTOCOL	0x50
 
@@ -63,13 +62,13 @@
 
 /** MSC Bulk-Only Command Block Wrapper (CBW) */
 struct CBW {
-	u32_t Signature;
-	u32_t Tag;
-	u32_t DataLength;
-	u8_t  Flags;
-	u8_t  LUN;
-	u8_t  CBLength;
-	u8_t  CB[16];
+	uint32_t Signature;
+	uint32_t Tag;
+	uint32_t DataLength;
+	uint8_t  Flags;
+	uint8_t  LUN;
+	uint8_t  CBLength;
+	uint8_t  CB[16];
 } __packed;
 
 /** MSC Command Status Wrapper (CBW) Signature */
@@ -82,10 +81,10 @@ struct CBW {
 
 /** MSC Bulk-Only Command Status Wrapper (CSW) */
 struct CSW {
-	u32_t Signature;
-	u32_t Tag;
-	u32_t DataResidue;
-	u8_t  Status;
+	uint32_t Signature;
+	uint32_t Tag;
+	uint32_t DataResidue;
+	uint8_t  Status;
 } __packed;
 
 /** SCSI transparent command set used by MSC */
@@ -107,4 +106,4 @@ struct CSW {
 #define MODE_SELECT10			0x55
 #define MODE_SENSE10			0x5A
 
-#endif /* __USB_MSC_H__ */
+#endif /* ZEPHYR_INCLUDE_USB_CLASS_USB_MSC_H_ */

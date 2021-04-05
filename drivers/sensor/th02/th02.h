@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _SENSOR_TH02
-#define _SENSOR_TH02
+#ifndef ZEPHYR_DRIVERS_SENSOR_TH02_TH02_H_
+#define ZEPHYR_DRIVERS_SENSOR_TH02_TH02_H_
 
 #include <device.h>
-#include <misc/util.h>
+#include <sys/util.h>
 
 #define TH02_I2C_DEV_ID         0x40
 #define TH02_REG_STATUS         0x00
@@ -26,12 +26,9 @@
 #define TH02_RD_REG_MODE        0x80
 
 struct th02_data {
-	struct device *i2c;
-	u16_t t_sample;
-	u16_t rh_sample;
+	const struct device *i2c;
+	uint16_t t_sample;
+	uint16_t rh_sample;
 };
 
-#define SYS_LOG_DOMAIN "TH02"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
 #endif /* _SENSOR_TH02_ */

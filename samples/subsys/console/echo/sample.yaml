@@ -1,8 +1,9 @@
 sample:
-  description: TBD
-  name: TBD
+  name: echo Sample
 tests:
-  - test:
-      build_only: true
-      filter: CONFIG_UART_CONSOLE and CONFIG_SERIAL_SUPPORT_INTERRUPT
-      tags: samples
+  sample.console.echo:
+    integration_platforms:
+      - mps2_an385
+    filter: CONFIG_UART_CONSOLE and CONFIG_SERIAL_SUPPORT_INTERRUPT
+    tags: console
+    harness: keyboard

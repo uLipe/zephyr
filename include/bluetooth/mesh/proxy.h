@@ -7,8 +7,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef __BT_MESH_PROXY_H
-#define __BT_MESH_PROXY_H
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_MESH_PROXY_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_MESH_PROXY_H_
 
 /**
  * @brief Bluetooth Mesh Proxy
@@ -17,19 +17,58 @@
  * @{
  */
 
-/**
- * @brief Enable advertising with Node Identity.
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Callbacks for the Proxy feature.
  *
- * This API requires that GATT Proxy support has been enabled. Once called
- * each subnet will start advertising using Node Identity for the next
- * 60 seconds.
+ *  Should be instantiated with @ref BT_MESH_PROXY_CB_DEFINE.
+ */
+struct bt_mesh_proxy_cb {
+	/** @brief Started sending Node Identity beacons on the given subnet.
+	 *
+	 *  @param net_idx Network index the Node Identity beacons are running
+	 *                 on.
+	 */
+	void (*identity_enabled)(uint16_t net_idx);
+	/** @brief Stopped sending Node Identity beacons on the given subnet.
+	 *
+	 *  @param net_idx Network index the Node Identity beacons were running
+	 *                 on.
+	 */
+	void (*identity_disabled)(uint16_t net_idx);
+};
+
+/** @def BT_MESH_PROXY_CB_DEFINE
  *
- * @return 0 on success, or (negative) error code on failure.
+ *  @brief Register a callback structure for Proxy events.
+ *
+ *  Registers a structure with callback functions that gets called on various
+ *  Proxy events.
+ *
+ *  @param _name Name of callback structure.
+ */
+#define BT_MESH_PROXY_CB_DEFINE(_name)                                         \
+	static const Z_STRUCT_SECTION_ITERABLE(                                \
+		bt_mesh_proxy_cb, _CONCAT(bt_mesh_proxy_cb, _name))
+
+/** @brief Enable advertising with Node Identity.
+ *
+ *  This API requires that GATT Proxy support has been enabled. Once called
+ *  each subnet will start advertising using Node Identity for the next
+ *  60 seconds.
+ *
+ *  @return 0 on success, or (negative) error code on failure.
  */
 int bt_mesh_proxy_identity_enable(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 /**
  * @}
  */
 
-#endif /* __BT_MESH_PROXY_H */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_MESH_PROXY_H_ */

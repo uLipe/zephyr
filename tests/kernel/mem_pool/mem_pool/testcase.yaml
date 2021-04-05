@@ -1,7 +1,0 @@
-tests:
-  - test:
-      min_ram: 32
-      tags: bat_commit core
-  - test_nios2:
-      arch_whitelist: nios2
-      tags: bat_commit core

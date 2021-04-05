@@ -1,166 +1,211 @@
-/* bmp280.c - Driver for Bosch BMP280 temperature and pressure sensor */
+/* bme280.c - Driver for Bosch BME280 temperature and pressure sensor */
 
 /*
  * Copyright (c) 2016, 2017 Intel Corporation
  * Copyright (c) 2017 IpTronix S.r.l.
+ * Copyright (c) 2021 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <kernel.h>
-#include <sensor.h>
+#include <drivers/sensor.h>
 #include <init.h>
-#include <gpio.h>
-#include <misc/byteorder.h>
-#include <misc/__assert.h>
+#include <drivers/gpio.h>
+#include <sys/byteorder.h>
+#include <sys/__assert.h>
 
-#ifdef CONFIG_BME280_DEV_TYPE_I2C
-#include <i2c.h>
-#elif defined CONFIG_BME280_DEV_TYPE_SPI
-#include <spi.h>
-#endif
+#include <logging/log.h>
 
 #include "bme280.h"
 
-static int bm280_reg_read(struct bme280_data *data,
-			  u8_t start, u8_t *buf, int size)
-{
-#ifdef CONFIG_BME280_DEV_TYPE_I2C
-	return i2c_burst_read(data->i2c_master, data->i2c_slave_addr,
-			      start, buf, size);
-#elif defined CONFIG_BME280_DEV_TYPE_SPI
-	u8_t tx_buf[2];
-	u8_t rx_buf[2];
-	int i;
-	int ret;
+LOG_MODULE_REGISTER(BME280, CONFIG_SENSOR_LOG_LEVEL);
 
-	for (i = 0; i < size; i++) {
-
-		ret = spi_slave_select(data->spi, data->spi_slave);
-		if (ret) {
-			SYS_LOG_DBG("spi_slave_select FAIL %d\n", ret);
-			return ret;
-		}
-
-		tx_buf[0] = (start + i) | 0x80;
-		ret = spi_transceive(data->spi, tx_buf, 2, rx_buf, 2);
-		if (ret) {
-			SYS_LOG_DBG("spi_transceive FAIL %d\n", ret);
-			return ret;
-		}
-
-		buf[i] = rx_buf[1];
-	}
+#if DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) == 0
+#warning "BME280 driver enabled without any devices"
 #endif
-	return 0;
+
+struct bme280_data {
+	/* Compensation parameters. */
+	uint16_t dig_t1;
+	int16_t dig_t2;
+	int16_t dig_t3;
+	uint16_t dig_p1;
+	int16_t dig_p2;
+	int16_t dig_p3;
+	int16_t dig_p4;
+	int16_t dig_p5;
+	int16_t dig_p6;
+	int16_t dig_p7;
+	int16_t dig_p8;
+	int16_t dig_p9;
+	uint8_t dig_h1;
+	int16_t dig_h2;
+	uint8_t dig_h3;
+	int16_t dig_h4;
+	int16_t dig_h5;
+	int8_t dig_h6;
+
+	/* Compensated values. */
+	int32_t comp_temp;
+	uint32_t comp_press;
+	uint32_t comp_humidity;
+
+	/* Carryover between temperature and pressure/humidity compensation. */
+	int32_t t_fine;
+
+	uint8_t chip_id;
+
+#ifdef CONFIG_PM_DEVICE
+	uint32_t pm_state; /* Current power state */
+#endif
+};
+
+struct bme280_config {
+	const struct device *bus;
+	const struct bme280_bus_io *bus_io;
+	const union bme280_bus_config bus_config;
+};
+
+static inline struct bme280_data *to_data(const struct device *dev)
+{
+	return dev->data;
 }
 
-static int bm280_reg_write(struct bme280_data *data, u8_t reg, u8_t val)
+static inline const struct bme280_config *to_config(const struct device *dev)
 {
-#ifdef CONFIG_BME280_DEV_TYPE_I2C
-	return i2c_reg_write_byte(data->i2c_master, data->i2c_slave_addr,
-				  reg, val);
-#elif defined CONFIG_BME280_DEV_TYPE_SPI
-	u8_t tx_buf[2];
-	u8_t rx_buf[2];
-	int ret;
+	return dev->config;
+}
 
-	ret = spi_slave_select(data->spi, data->spi_slave);
-	if (ret) {
-		SYS_LOG_DBG("spi_slave_select FAIL %d\n", ret);
-		return ret;
-	}
+static inline const struct device *to_bus(const struct device *dev)
+{
+	return to_config(dev)->bus;
+}
 
-	reg &= 0x7F;
-	tx_buf[0] = reg;
-	tx_buf[1] = val;
-	ret = spi_transceive(data->spi, tx_buf, 2, rx_buf, 2);
-	if (ret) {
-		SYS_LOG_DBG("spi_transceive FAIL %d\n", ret);
-		return ret;
-	}
+static inline const union bme280_bus_config*
+to_bus_config(const struct device *dev)
+{
+	return &to_config(dev)->bus_config;
+}
 
-#endif
-	return 0;
+static inline int bme280_bus_check(const struct device *dev)
+{
+	return to_config(dev)->bus_io->check(to_bus(dev), to_bus_config(dev));
+}
+
+static inline int bme280_reg_read(const struct device *dev,
+				  uint8_t start, uint8_t *buf, int size)
+{
+	return to_config(dev)->bus_io->read(to_bus(dev), to_bus_config(dev),
+					    start, buf, size);
+}
+
+static inline int bme280_reg_write(const struct device *dev, uint8_t reg,
+				   uint8_t val)
+{
+	return to_config(dev)->bus_io->write(to_bus(dev), to_bus_config(dev),
+					     reg, val);
 }
 
 /*
  * Compensation code taken from BME280 datasheet, Section 4.2.3
  * "Compensation formula".
  */
-static void bme280_compensate_temp(struct bme280_data *data, s32_t adc_temp)
+static void bme280_compensate_temp(struct bme280_data *data, int32_t adc_temp)
 {
-	s32_t var1, var2;
+	int32_t var1, var2;
 
-	var1 = (((adc_temp >> 3) - ((s32_t)data->dig_t1 << 1)) *
-		((s32_t)data->dig_t2)) >> 11;
-	var2 = (((((adc_temp >> 4) - ((s32_t)data->dig_t1)) *
-		  ((adc_temp >> 4) - ((s32_t)data->dig_t1))) >> 12) *
-		((s32_t)data->dig_t3)) >> 14;
+	var1 = (((adc_temp >> 3) - ((int32_t)data->dig_t1 << 1)) *
+		((int32_t)data->dig_t2)) >> 11;
+	var2 = (((((adc_temp >> 4) - ((int32_t)data->dig_t1)) *
+		  ((adc_temp >> 4) - ((int32_t)data->dig_t1))) >> 12) *
+		((int32_t)data->dig_t3)) >> 14;
 
 	data->t_fine = var1 + var2;
 	data->comp_temp = (data->t_fine * 5 + 128) >> 8;
 }
 
-static void bme280_compensate_press(struct bme280_data *data, s32_t adc_press)
+static void bme280_compensate_press(struct bme280_data *data, int32_t adc_press)
 {
-	s64_t var1, var2, p;
+	int64_t var1, var2, p;
 
-	var1 = ((s64_t)data->t_fine) - 128000;
-	var2 = var1 * var1 * (s64_t)data->dig_p6;
-	var2 = var2 + ((var1 * (s64_t)data->dig_p5) << 17);
-	var2 = var2 + (((s64_t)data->dig_p4) << 35);
-	var1 = ((var1 * var1 * (s64_t)data->dig_p3) >> 8) +
-		((var1 * (s64_t)data->dig_p2) << 12);
-	var1 = (((((s64_t)1) << 47) + var1)) * ((s64_t)data->dig_p1) >> 33;
+	var1 = ((int64_t)data->t_fine) - 128000;
+	var2 = var1 * var1 * (int64_t)data->dig_p6;
+	var2 = var2 + ((var1 * (int64_t)data->dig_p5) << 17);
+	var2 = var2 + (((int64_t)data->dig_p4) << 35);
+	var1 = ((var1 * var1 * (int64_t)data->dig_p3) >> 8) +
+		((var1 * (int64_t)data->dig_p2) << 12);
+	var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)data->dig_p1) >> 33;
 
 	/* Avoid exception caused by division by zero. */
 	if (var1 == 0) {
-		data->comp_press = 0;
+		data->comp_press = 0U;
 		return;
 	}
 
 	p = 1048576 - adc_press;
 	p = (((p << 31) - var2) * 3125) / var1;
-	var1 = (((s64_t)data->dig_p9) * (p >> 13) * (p >> 13)) >> 25;
-	var2 = (((s64_t)data->dig_p8) * p) >> 19;
-	p = ((p + var1 + var2) >> 8) + (((s64_t)data->dig_p7) << 4);
+	var1 = (((int64_t)data->dig_p9) * (p >> 13) * (p >> 13)) >> 25;
+	var2 = (((int64_t)data->dig_p8) * p) >> 19;
+	p = ((p + var1 + var2) >> 8) + (((int64_t)data->dig_p7) << 4);
 
-	data->comp_press = (u32_t)p;
+	data->comp_press = (uint32_t)p;
 }
 
 static void bme280_compensate_humidity(struct bme280_data *data,
-				       s32_t adc_humidity)
+				       int32_t adc_humidity)
 {
-	s32_t h;
+	int32_t h;
 
-	h = (data->t_fine - ((s32_t)76800));
-	h = ((((adc_humidity << 14) - (((s32_t)data->dig_h4) << 20) -
-		(((s32_t)data->dig_h5) * h)) + ((s32_t)16384)) >> 15) *
-		(((((((h * ((s32_t)data->dig_h6)) >> 10) * (((h *
-		((s32_t)data->dig_h3)) >> 11) + ((s32_t)32768))) >> 10) +
-		((s32_t)2097152)) * ((s32_t)data->dig_h2) + 8192) >> 14);
+	h = (data->t_fine - ((int32_t)76800));
+	h = ((((adc_humidity << 14) - (((int32_t)data->dig_h4) << 20) -
+		(((int32_t)data->dig_h5) * h)) + ((int32_t)16384)) >> 15) *
+		(((((((h * ((int32_t)data->dig_h6)) >> 10) * (((h *
+		((int32_t)data->dig_h3)) >> 11) + ((int32_t)32768))) >> 10) +
+		((int32_t)2097152)) * ((int32_t)data->dig_h2) + 8192) >> 14);
 	h = (h - (((((h >> 15) * (h >> 15)) >> 7) *
-		((s32_t)data->dig_h1)) >> 4));
+		((int32_t)data->dig_h1)) >> 4));
 	h = (h > 419430400 ? 419430400 : h);
 
-	data->comp_humidity = (u32_t)(h >> 12);
+	data->comp_humidity = (uint32_t)(h >> 12);
 }
 
-static int bme280_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int bme280_sample_fetch(const struct device *dev,
+			       enum sensor_channel chan)
 {
-	struct bme280_data *data = dev->driver_data;
-	u8_t buf[8];
-	s32_t adc_press, adc_temp, adc_humidity;
+	struct bme280_data *data = to_data(dev);
+	uint8_t buf[8];
+	int32_t adc_press, adc_temp, adc_humidity;
 	int size = 6;
 	int ret;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
 
+#ifdef CONFIG_PM_DEVICE
+	/* Do not allow sample fetching from OFF state */
+	if (data->pm_state == DEVICE_PM_OFF_STATE)
+		return -EIO;
+#endif
+
+#ifdef CONFIG_BME280_MODE_FORCED
+	ret = bme280_reg_write(dev, BME280_REG_CTRL_MEAS, BME280_CTRL_MEAS_VAL);
+	if (ret < 0) {
+		return ret;
+	}
+
+	do {
+		k_sleep(K_MSEC(3));
+		ret = bme280_reg_read(dev, BME280_REG_STATUS, buf, 1);
+		if (ret < 0) {
+			return ret;
+		}
+	} while (buf[0] & 0x08);
+#endif
+
 	if (data->chip_id == BME280_CHIP_ID) {
 		size = 8;
 	}
-	ret = bm280_reg_read(data, BME280_REG_PRESS_MSB, buf, size);
+	ret = bme280_reg_read(dev, BME280_REG_PRESS_MSB, buf, size);
 	if (ret < 0) {
 		return ret;
 	}
@@ -179,14 +224,14 @@ static int bme280_sample_fetch(struct device *dev, enum sensor_channel chan)
 	return 0;
 }
 
-static int bme280_channel_get(struct device *dev,
+static int bme280_channel_get(const struct device *dev,
 			      enum sensor_channel chan,
 			      struct sensor_value *val)
 {
-	struct bme280_data *data = dev->driver_data;
+	struct bme280_data *data = to_data(dev);
 
 	switch (chan) {
-	case SENSOR_CHAN_TEMP:
+	case SENSOR_CHAN_AMBIENT_TEMP:
 		/*
 		 * data->comp_temp has a resolution of 0.01 degC.  So
 		 * 5123 equals 51.23 degC.
@@ -200,9 +245,9 @@ static int bme280_channel_get(struct device *dev,
 		 * fractional.  Output value of 24674867 represents
 		 * 24674867/256 = 96386.2 Pa = 963.862 hPa
 		 */
-		val->val1 = (data->comp_press >> 8) / 1000;
-		val->val2 = (data->comp_press >> 8) % 1000 * 1000 +
-			(((data->comp_press & 0xff) * 1000) >> 8);
+		val->val1 = (data->comp_press >> 8) / 1000U;
+		val->val2 = (data->comp_press >> 8) % 1000 * 1000U +
+			(((data->comp_press & 0xff) * 1000U) >> 8);
 		break;
 	case SENSOR_CHAN_HUMIDITY:
 		/*
@@ -211,9 +256,7 @@ static int bme280_channel_get(struct device *dev,
 		 * 47445/1024 = 46.333 %RH
 		 */
 		val->val1 = (data->comp_humidity >> 10);
-		val->val2 = (((data->comp_humidity & 0x3ff) * 1000 * 1000) >> 10);
-		val->val1 = val->val1 * 1000 + (val->val2 * 1000) / 1000000;
-		val->val2 = (val->val2 * 1000) % 1000000;
+		val->val2 = (((data->comp_humidity & 0x3ff) * 1000U * 1000U) >> 10);
 		break;
 	default:
 		return -EINVAL;
@@ -227,16 +270,18 @@ static const struct sensor_driver_api bme280_api_funcs = {
 	.channel_get = bme280_channel_get,
 };
 
-static int bme280_read_compensation(struct bme280_data *data)
+static int bme280_read_compensation(const struct device *dev)
 {
-	u16_t buf[12];
-	u8_t hbuf[7];
+	struct bme280_data *data = to_data(dev);
+	uint16_t buf[12];
+	uint8_t hbuf[7];
 	int err = 0;
 
-	err = bm280_reg_read(data, BME280_REG_COMP_START,
-			     (u8_t *)buf, sizeof(buf));
+	err = bme280_reg_read(dev, BME280_REG_COMP_START,
+			      (uint8_t *)buf, sizeof(buf));
 
 	if (err < 0) {
+		LOG_DBG("COMP_START read failed: %d", err);
 		return err;
 	}
 
@@ -255,14 +300,16 @@ static int bme280_read_compensation(struct bme280_data *data)
 	data->dig_p9 = sys_le16_to_cpu(buf[11]);
 
 	if (data->chip_id == BME280_CHIP_ID) {
-		err = bm280_reg_read(data, BME280_REG_HUM_COMP_PART1,
-				     &data->dig_h1, 1);
+		err = bme280_reg_read(dev, BME280_REG_HUM_COMP_PART1,
+				      &data->dig_h1, 1);
 		if (err < 0) {
+			LOG_DBG("HUM_COMP_PART1 read failed: %d", err);
 			return err;
 		}
 
-		err = bm280_reg_read(data, BME280_REG_HUM_COMP_PART2, hbuf, 7);
+		err = bme280_reg_read(dev, BME280_REG_HUM_COMP_PART2, hbuf, 7);
 		if (err < 0) {
+			LOG_DBG("HUM_COMP_PART2 read failed: %d", err);
 			return err;
 		}
 
@@ -276,112 +323,161 @@ static int bme280_read_compensation(struct bme280_data *data)
 	return 0;
 }
 
-static int bme280_chip_init(struct device *dev)
+static int bme280_chip_init(const struct device *dev)
 {
-	struct bme280_data *data = (struct bme280_data *) dev->driver_data;
+	struct bme280_data *data = to_data(dev);
 	int err;
 
-	err = bm280_reg_read(data, BME280_REG_ID, &data->chip_id, 1);
+	LOG_DBG("initializing \"%s\" on bus \"%s\"",
+		dev->name, to_bus(dev)->name);
+
+	err = bme280_bus_check(dev);
 	if (err < 0) {
+		LOG_DBG("bus check failed: %d", err);
+		return err;
+	}
+
+	err = bme280_reg_read(dev, BME280_REG_ID, &data->chip_id, 1);
+	if (err < 0) {
+		LOG_DBG("ID read failed: %d", err);
 		return err;
 	}
 
 	if (data->chip_id == BME280_CHIP_ID) {
-		SYS_LOG_DBG("BME280 chip detected");
+		LOG_DBG("ID OK");
 	} else if (data->chip_id == BMP280_CHIP_ID_MP ||
 		   data->chip_id == BMP280_CHIP_ID_SAMPLE_1) {
-		SYS_LOG_DBG("BMP280 chip detected");
+		LOG_DBG("ID OK (BMP280)");
 	} else {
-		SYS_LOG_DBG("bad chip id 0x%x", data->chip_id);
+		LOG_DBG("bad chip id 0x%x", data->chip_id);
 		return -ENOTSUP;
 	}
 
-	err = bme280_read_compensation(data);
+	err = bme280_read_compensation(dev);
 	if (err < 0) {
 		return err;
 	}
 
 	if (data->chip_id == BME280_CHIP_ID) {
-		err = bm280_reg_write(data, BME280_REG_CTRL_HUM,
-				      BME280_HUMIDITY_OVER);
+		err = bme280_reg_write(dev, BME280_REG_CTRL_HUM,
+				       BME280_HUMIDITY_OVER);
 		if (err < 0) {
+			LOG_DBG("CTRL_HUM write failed: %d", err);
 			return err;
 		}
 	}
 
-	err = bm280_reg_write(data, BME280_REG_CTRL_MEAS, BME280_CTRL_MEAS_VAL);
+	err = bme280_reg_write(dev, BME280_REG_CTRL_MEAS,
+			       BME280_CTRL_MEAS_VAL);
 	if (err < 0) {
+		LOG_DBG("CTRL_MEAS write failed: %d", err);
 		return err;
 	}
 
-	err = bm280_reg_write(data, BME280_REG_CONFIG, BME280_CONFIG_VAL);
+	err = bme280_reg_write(dev, BME280_REG_CONFIG,
+			       BME280_CONFIG_VAL);
 	if (err < 0) {
+		LOG_DBG("CONFIG write failed: %d", err);
 		return err;
 	}
 
-	return 0;
-}
-
-#ifdef CONFIG_BME280_DEV_TYPE_SPI
-static inline int bme280_spi_init(struct bme280_data *data)
-{
-	struct spi_config spi_config;
-	int ret;
-
-	data->spi = device_get_binding(CONFIG_BME280_SPI_DEV_NAME);
-	if (!data->spi) {
-		SYS_LOG_DBG("spi device not found: %s",
-			    CONFIG_BME280_SPI_DEV_NAME);
-		return -EINVAL;
-	}
-
-	spi_config.config = SPI_WORD(8) | SPI_TRANSFER_MSB |
-			    SPI_MODE_CPOL | SPI_MODE_CPHA;
-	spi_config.max_sys_freq = 4;
-
-	ret = spi_configure(data->spi, &spi_config);
-	if (ret) {
-		SYS_LOG_DBG("SPI configuration error %s %d\n",
-			    CONFIG_BME280_SPI_DEV_NAME, ret);
-		return ret;
-	}
-
-	return 0;
-}
+#ifdef CONFIG_PM_DEVICE
+	/* Set power state to ACTIVE */
+	data->pm_state = DEVICE_PM_ACTIVE_STATE;
 #endif
-
-int bme280_init(struct device *dev)
-{
-	struct bme280_data *data = dev->driver_data;
-
-#ifdef CONFIG_BME280_DEV_TYPE_I2C
-	data->i2c_master = device_get_binding(CONFIG_BME280_I2C_MASTER_DEV_NAME);
-	if (!data->i2c_master) {
-		SYS_LOG_DBG("i2c master not found: %s",
-			    CONFIG_BME280_I2C_MASTER_DEV_NAME);
-		return -EINVAL;
-	}
-
-	data->i2c_slave_addr = BME280_I2C_ADDR;
-#elif defined CONFIG_BME280_DEV_TYPE_SPI
-	if (bme280_spi_init(data) < 0) {
-		SYS_LOG_DBG("spi master not found: %s",
-			    CONFIG_BME280_SPI_DEV_NAME);
-		return -EINVAL;
-	}
-
-	data->spi_slave = CONFIG_BME280_SPI_DEV_SLAVE;
-#endif
-
-	if (bme280_chip_init(dev) < 0) {
-		return -EINVAL;
-	}
-
+	LOG_DBG("\"%s\" OK", dev->name);
 	return 0;
 }
 
-static struct bme280_data bme280_data;
+#ifdef CONFIG_PM_DEVICE
+int bme280_pm_ctrl(const struct device *dev, uint32_t ctrl_command,
+				void *context, device_pm_cb cb, void *arg)
+{
+	struct bme280_data *data = to_data(dev);
 
-DEVICE_AND_API_INIT(bme280, CONFIG_BME280_DEV_NAME, bme280_init, &bme280_data,
-		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
-		    &bme280_api_funcs);
+	int ret = 0;
+
+	/* Set power state */
+	if (ctrl_command == DEVICE_PM_SET_POWER_STATE) {
+		uint32_t new_pm_state = *((const uint32_t *)context);
+
+		if (new_pm_state != data->pm_state) {
+
+			/* Switching from OFF to any */
+			if (data->pm_state == DEVICE_PM_OFF_STATE) {
+
+				/* Re-initialize the chip */
+				ret = bme280_chip_init(dev);
+			}
+			/* Switching to OFF from any */
+			else if (new_pm_state == DEVICE_PM_OFF_STATE) {
+
+				/* Put the chip into sleep mode */
+				ret = bme280_reg_write(dev,
+					BME280_REG_CTRL_MEAS,
+					BME280_CTRL_MEAS_OFF_VAL);
+
+				if (ret < 0)
+					LOG_DBG("CTRL_MEAS write failed: %d",
+						ret);
+			}
+
+			/* Store the new state */
+			if (!ret)
+				data->pm_state = new_pm_state;
+		}
+	}
+	/* Get power state */
+	else {
+		__ASSERT_NO_MSG(ctrl_command == DEVICE_PM_GET_POWER_STATE);
+		*((uint32_t *)context) = data->pm_state;
+	}
+
+	/* Invoke callback if any */
+	if (cb)
+		cb(dev, ret, context, arg);
+
+	return ret;
+}
+#endif /* CONFIG_PM_DEVICE */
+
+/* Initializes a struct bme280_config for an instance on a SPI bus. */
+#define BME280_CONFIG_SPI(inst)						\
+	{								\
+		.bus = DEVICE_DT_GET(DT_INST_BUS(inst)),		\
+		.bus_io = &bme280_bus_io_spi,				\
+		.bus_config.spi_cfg =					\
+			SPI_CONFIG_DT_INST(inst,			\
+					   BME280_SPI_OPERATION,	\
+					   0),				\
+	}
+
+/* Initializes a struct bme280_config for an instance on an I2C bus. */
+#define BME280_CONFIG_I2C(inst)						\
+	{								\
+		.bus = DEVICE_DT_GET(DT_INST_BUS(inst)),		\
+		.bus_io = &bme280_bus_io_i2c,				\
+		.bus_config.i2c_addr = DT_INST_REG_ADDR(inst),		\
+	}
+
+/*
+ * Main instantiation macro, which selects the correct bus-specific
+ * instantiation macros for the instance.
+ */
+#define BME280_DEFINE(inst)						\
+	static struct bme280_data bme280_data_##inst;			\
+	static const struct bme280_config bme280_config_##inst =	\
+		COND_CODE_1(DT_INST_ON_BUS(inst, spi),			\
+			    (BME280_CONFIG_SPI(inst)),			\
+			    (BME280_CONFIG_I2C(inst)));			\
+	DEVICE_DT_INST_DEFINE(inst,					\
+			 bme280_chip_init,				\
+			 bme280_pm_ctrl,				\
+			 &bme280_data_##inst,				\
+			 &bme280_config_##inst,				\
+			 POST_KERNEL,					\
+			 CONFIG_SENSOR_INIT_PRIORITY,			\
+			 &bme280_api_funcs);
+
+/* Create the struct device for every status "okay" node in the devicetree. */
+DT_INST_FOREACH_STATUS_OKAY(BME280_DEFINE)

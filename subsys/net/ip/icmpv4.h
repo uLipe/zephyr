@@ -25,22 +25,23 @@
 #define NET_ICMPV4_DST_UNREACH_NO_PROTO  2 /* Protocol not supported */
 #define NET_ICMPV4_DST_UNREACH_NO_PORT   3 /* Port unreachable */
 
+#define NET_ICMPV4_UNUSED_LEN 4
+
 struct net_icmpv4_echo_req {
-	u16_t identifier;
-	u16_t sequence;
+	uint16_t identifier;
+	uint16_t sequence;
 } __packed;
 
-#define NET_ICMPV4_ECHO_REQ(pkt)					\
-	((struct net_icmpv4_echo_req *)((u8_t *)net_pkt_icmp_data(pkt) + \
-					sizeof(struct net_icmp_hdr)))
-
-typedef enum net_verdict (*icmpv4_callback_handler_t)(struct net_pkt *pkt);
+typedef enum net_verdict (*icmpv4_callback_handler_t)(
+					struct net_pkt *pkt,
+					struct net_ipv4_hdr *ip_hdr,
+					struct net_icmp_hdr *icmp_hdr);
 
 struct net_icmpv4_handler {
 	sys_snode_t node;
-	u8_t type;
-	u8_t code;
 	icmpv4_callback_handler_t handler;
+	uint8_t type;
+	uint8_t code;
 };
 
 /**
@@ -50,7 +51,7 @@ struct net_icmpv4_handler {
  * @param code Code of the type of the error message.
  * @return Return 0 if the sending succeed, <0 otherwise.
  */
-int net_icmpv4_send_error(struct net_pkt *pkt, u8_t type, u8_t code);
+int net_icmpv4_send_error(struct net_pkt *pkt, uint8_t type, uint8_t code);
 
 /**
  * @brief Send ICMPv4 echo request message.
@@ -61,32 +62,53 @@ int net_icmpv4_send_error(struct net_pkt *pkt, u8_t type, u8_t code);
  * to this Echo Request. May be zero.
  * @param sequence A sequence number to aid in matching Echo Replies
  * to this Echo Request. May be zero.
+ * @param data Arbitrary payload data that will be included in the
+ * Echo Reply verbatim. May be zero.
+ * @param data_size Size of the Payload Data in bytes. May be zero.
  *
  * @return Return 0 if the sending succeed, <0 otherwise.
  */
+#if defined(CONFIG_NET_NATIVE_IPV4)
 int net_icmpv4_send_echo_request(struct net_if *iface,
 				 struct in_addr *dst,
-				 u16_t identifier,
-				 u16_t sequence);
+				 uint16_t identifier,
+				 uint16_t sequence,
+				 const void *data,
+				 size_t data_size);
+#else
+static inline int net_icmpv4_send_echo_request(struct net_if *iface,
+					       struct in_addr *dst,
+					       uint16_t identifier,
+					       uint16_t sequence,
+					       const void *data,
+					       size_t data_size)
+{
+	ARG_UNUSED(iface);
+	ARG_UNUSED(dst);
+	ARG_UNUSED(identifier);
+	ARG_UNUSED(sequence);
+	ARG_UNUSED(data);
+	ARG_UNUSED(data_size);
 
+	return -ENOTSUP;
+}
+#endif
+
+#if defined(CONFIG_NET_NATIVE_IPV4)
 void net_icmpv4_register_handler(struct net_icmpv4_handler *handler);
 
 void net_icmpv4_unregister_handler(struct net_icmpv4_handler *handler);
 
 enum net_verdict net_icmpv4_input(struct net_pkt *pkt,
-				  u8_t type, u8_t code);
+				  struct net_ipv4_hdr *ip_hdr);
 
-struct net_icmp_hdr *net_icmpv4_get_hdr(struct net_pkt *pkt,
-					struct net_icmp_hdr *hdr);
-struct net_icmp_hdr *net_icmpv4_set_hdr(struct net_pkt *pkt,
-					struct net_icmp_hdr *hdr);
-struct net_buf *net_icmpv4_set_chksum(struct net_pkt *pkt,
-				      struct net_buf *frag);
+int net_icmpv4_finalize(struct net_pkt *pkt);
 
-#if defined(CONFIG_NET_IPV4)
 void net_icmpv4_init(void);
 #else
 #define net_icmpv4_init(...)
+#define net_icmpv4_register_handler(...)
+#define net_icmpv4_unregister_handler(...)
 #endif
 
 #endif /* __ICMPV4_H */

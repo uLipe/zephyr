@@ -1,11 +1,11 @@
+common:
+  depends_on: netif
+  min_ram: 16
+  tags: net arp
 tests:
-  - test:
-      filter: not CONFIG_BT
-      min_ram: 12
-      platform_exclude: qemu_xtensa
-      tags: net
-  - test_with_bt:
-      filter: CONFIG_BT
-      min_ram: 16
-      platform_exclude: qemu_xtensa
-      tags: net
+  net.arp:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_COOPERATIVE=y
+  net.arp.preempt:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_PREEMPTIVE=y

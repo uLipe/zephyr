@@ -11,62 +11,126 @@
  * ARCv2 kernel interrupt handling interface. Included by arc/arch.h.
  */
 
-#ifndef _ARCH_ARC_V2_IRQ__H_
-#define _ARCH_ARC_V2_IRQ__H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARC_V2_IRQ_H_
+#define ZEPHYR_INCLUDE_ARCH_ARC_V2_IRQ_H_
 
 #include <arch/arc/v2/aux_regs.h>
 #include <toolchain/common.h>
 #include <irq.h>
-#include <misc/util.h>
+#include <sys/util.h>
 #include <sw_isr_table.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifdef _ASMLANGUAGE
-GTEXT(_irq_exit);
-GTEXT(_arch_irq_enable)
-GTEXT(_arch_irq_disable)
-#else
+#ifndef _ASMLANGUAGE
 
-extern void _arch_irq_enable(unsigned int irq);
-extern void _arch_irq_disable(unsigned int irq);
+extern void z_arc_firq_stack_set(void);
+extern void arch_irq_enable(unsigned int irq);
+extern void arch_irq_disable(unsigned int irq);
+extern int arch_irq_is_enabled(unsigned int irq);
+#ifdef CONFIG_TRACING_ISR
+extern void sys_trace_isr_enter(void);
+extern void sys_trace_isr_exit(void);
+#endif
 
-extern void _irq_exit(void);
-extern void _irq_priority_set(unsigned int irq, unsigned int prio,
-			      u32_t flags);
+extern void z_irq_priority_set(unsigned int irq, unsigned int prio,
+			      uint32_t flags);
 extern void _isr_wrapper(void);
-extern void _irq_spurious(void *unused);
+extern void z_irq_spurious(const void *unused);
 
-/**
- * Configure a static interrupt.
- *
- * All arguments must be computable by the compiler at build time.
- *
- * _ISR_DECLARE will populate the .intList section with the interrupt's
+/* Z_ISR_DECLARE will populate the .intList section with the interrupt's
  * parameters, which will then be used by gen_irq_tables.py to create
  * the vector table and the software ISR table. This is all done at
  * build-time.
  *
  * We additionally set the priority in the interrupt controller at
  * runtime.
- *
- * @param irq_p IRQ line number
- * @param priority_p Interrupt priority
- * @param isr_p Interrupt service routine
- * @param isr_param_p ISR parameter
- * @param flags_p IRQ options
- *
- * @return The vector assigned to this interrupt
  */
-#define _ARCH_IRQ_CONNECT(irq_p, priority_p, isr_p, isr_param_p, flags_p) \
-({ \
-	_ISR_DECLARE(irq_p, 0, isr_p, isr_param_p); \
-	_irq_priority_set(irq_p, priority_p, flags_p); \
-	irq_p; \
-})
+#define ARCH_IRQ_CONNECT(irq_p, priority_p, isr_p, isr_param_p, flags_p) \
+{ \
+	Z_ISR_DECLARE(irq_p, 0, isr_p, isr_param_p); \
+	z_irq_priority_set(irq_p, priority_p, flags_p); \
+}
 
+/**
+ * Configure a 'direct' static interrupt.
+ *
+ * When firq has no separate stack(CONFIG_ARC_FIRQ_STACK=N), it's not safe
+ * to call C ISR handlers because sp will be switched to bank1's sp which
+ * is undefined value.
+ * So for this case, the priority cannot be set to 0 but next level 1
+ *
+ * When firq has separate stack (CONFIG_ARC_FIRQ_STACK=y) but at the same
+ * time stack checking is enabled (CONFIG_ARC_STACK_CHECKING=y)
+ * the stack checking can raise stack check exception as sp is switched to
+ * firq's stack (bank1's sp). So for this case, the priority cannot be set
+ * to 0 but next level 1.
+ *
+ * Note that for the above cases, if application still wants to use firq by
+ * setting priority to 0. Application can call z_irq_priority_set again.
+ * Then it's left to application to handle the details of firq
+ *
+ * See include/irq.h for details.
+ * All arguments must be computable at build time.
+ */
+#define ARCH_IRQ_DIRECT_CONNECT(irq_p, priority_p, isr_p, flags_p) \
+{ \
+	Z_ISR_DECLARE(irq_p, ISR_FLAG_DIRECT, isr_p, NULL); \
+	BUILD_ASSERT(priority_p || !IS_ENABLED(CONFIG_ARC_FIRQ) || \
+	(IS_ENABLED(CONFIG_ARC_FIRQ_STACK) && \
+	!IS_ENABLED(CONFIG_ARC_STACK_CHECKING)), \
+	"irq priority cannot be set to 0 when CONFIG_ARC_FIRQ_STACK" \
+	"is not configured or CONFIG_ARC_FIRQ_STACK " \
+	"and CONFIG_ARC_STACK_CHECKING are configured together"); \
+	z_irq_priority_set(irq_p, priority_p, flags_p); \
+}
+
+
+static inline void arch_isr_direct_header(void)
+{
+#ifdef CONFIG_TRACING_ISR
+	sys_trace_isr_enter();
+#endif
+}
+
+static inline void arch_isr_direct_footer(int maybe_swap)
+{
+	/* clear SW generated interrupt */
+	if (z_arc_v2_aux_reg_read(_ARC_V2_ICAUSE) ==
+	    z_arc_v2_aux_reg_read(_ARC_V2_AUX_IRQ_HINT)) {
+		z_arc_v2_aux_reg_write(_ARC_V2_AUX_IRQ_HINT, 0);
+	}
+#ifdef CONFIG_TRACING_ISR
+	sys_trace_isr_exit();
+#endif
+}
+
+#define ARCH_ISR_DIRECT_HEADER() arch_isr_direct_header()
+extern void arch_isr_direct_header(void);
+
+#define ARCH_ISR_DIRECT_FOOTER(swap) arch_isr_direct_footer(swap)
+
+#if defined(__CCAC__)
+#define _ARC_DIRECT_ISR_FUNC_ATTRIBUTE		__interrupt__
+#else
+#define _ARC_DIRECT_ISR_FUNC_ATTRIBUTE		interrupt("ilink")
+#endif
+
+/*
+ * Scheduling can not be done in direct isr. If required, please use kernel
+ * aware interrupt handling
+ */
+#define ARCH_ISR_DIRECT_DECLARE(name) \
+	static inline int name##_body(void); \
+	__attribute__ ((_ARC_DIRECT_ISR_FUNC_ATTRIBUTE))void name(void) \
+	{ \
+		ISR_DIRECT_HEADER(); \
+		name##_body(); \
+		ISR_DIRECT_FOOTER(0); \
+	} \
+	static inline int name##_body(void)
 
 
 /**
@@ -101,7 +165,7 @@ extern void _irq_spurious(void *unused);
  * "interrupt disable state" prior to the call.
  */
 
-static ALWAYS_INLINE unsigned int _arch_irq_lock(void)
+static ALWAYS_INLINE unsigned int arch_irq_lock(void)
 {
 	unsigned int key;
 
@@ -109,22 +173,18 @@ static ALWAYS_INLINE unsigned int _arch_irq_lock(void)
 	return key;
 }
 
-/**
- *
- * @brief Enable all interrupts on the local CPU
- *
- * This routine re-enables interrupts on the local CPU.  The @a key parameter
- * is an architecture-dependent lock-out key that is returned by a previous
- * invocation of irq_lock().
- *
- * This routine can be called from either interrupt or thread level.
- *
- * @return N/A
- */
-
-static ALWAYS_INLINE void _arch_irq_unlock(unsigned int key)
+static ALWAYS_INLINE void arch_irq_unlock(unsigned int key)
 {
 	__asm__ volatile("seti %0" : : "ir"(key) : "memory");
+}
+
+static ALWAYS_INLINE bool arch_irq_unlocked(unsigned int key)
+{
+	/* ARC irq lock uses instruction "clri r0",
+	 * r0 ==  {26’d0, 1’b1, STATUS32.IE, STATUS32.E[3:0] }
+	 * bit4 is used to record IE (Interrupt Enable) bit
+	 */
+	return (key & 0x10)  ==  0x10;
 }
 
 #endif /* _ASMLANGUAGE */
@@ -133,4 +193,4 @@ static ALWAYS_INLINE void _arch_irq_unlock(unsigned int key)
 }
 #endif
 
-#endif /* _ARCH_ARC_V2_IRQ__H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARC_V2_IRQ_H_ */

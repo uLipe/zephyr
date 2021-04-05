@@ -1,43 +1,30 @@
----
-title: Flash Partitions
-id: fixed-partition
-version: 0.1
+description: Flash partitions parent node
 
-description: >
-    This binding gives a base FLASH partition description
+compatible: "fixed-partitions"
 
 properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "fixed-partitions"
+    "#address-cells":
+        type: int
+        required: false
+        description: number of address cells in reg property
 
-    partition\d+:
-      type: string
-      generation: define
+    "#size-cells":
+        type: int
+        required: false
+        description: number of size cells in reg property
 
-      properties:
-          reg:
-            type: array
-            description: partition offset and size from flash bank
-            generation: define
-            category: required
-            label: offset
-
-          label:
-            type: string
-            description: Partition label
-            generation: define
-            category: required
-
-          read-only:
-            type: boolean
-            category: optional
-            description: Denotes read only partition
-            generation: define
-
-base_label: FLASH_AREA
-use-property-label: yes
-
-...
+child-binding:
+    description: Flash partition child node
+    properties:
+       label:
+          type: string
+          required: false
+          description: Human readable string describing the device (used as device_get_binding() argument)
+       read-only:
+          type: boolean
+          required: false
+          description: if the partition is read-only or not
+       reg:
+          type: array
+          description: register space
+          required: true

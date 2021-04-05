@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 if(CONFIG_XTENSA_RESET_VECTOR)
   zephyr_library()
 
@@ -7,7 +9,12 @@ if(CONFIG_XTENSA_RESET_VECTOR)
     -mlongcalls
     )
 
+  zephyr_library_sources_ifndef(CONFIG_RESET_VECTOR_IN_BOOTLOADER
+    reset-vector.S
+    )
+
   zephyr_library_sources(
-	reset-vector.S
+    memerror-vector.S
+    memctl_default.S
     )
 endif()

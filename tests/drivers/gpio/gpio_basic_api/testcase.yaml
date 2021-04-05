@@ -1,5 +1,9 @@
 tests:
-  - test_gpio:
-      build_only: true
-      platform_whitelist: quark_se_c1000_devboard quark_d2000_crb
-      tags: drivers
+  drivers.gpio.2pin:
+    tags: drivers gpio
+    depends_on: gpio
+    min_flash: 34
+    filter: dt_compat_enabled("test,gpio_basic_api")
+    harness: ztest
+    harness_config:
+      fixture: gpio_loopback

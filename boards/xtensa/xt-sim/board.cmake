@@ -1,1 +1,3 @@
-set(DEBUG_SCRIPT xt-gdb.sh)
+# SPDX-License-Identifier: Apache-2.0
+
+board_set_debugger_ifnset(xtensa)

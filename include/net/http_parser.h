@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: MIT */
+
 /* Copyright Joyent, Inc. and other Node contributors. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,11 +20,8 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
-#ifndef _HTTP_PARSER_H_
-#define _HTTP_PARSER_H_
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef ZEPHYR_INCLUDE_NET_HTTP_PARSER_H_
+#define ZEPHYR_INCLUDE_NET_HTTP_PARSER_H_
 
 /* Also update SONAME in the Makefile whenever you change these. */
 #define HTTP_PARSER_VERSION_MAJOR 2
@@ -34,20 +33,24 @@ extern "C" {
 	(!defined(_MSC_VER) || _MSC_VER < 1600) && !defined(__WINE__)
 #include <BaseTsd.h>
 #include <stddef.h>
-typedef __int8 s8_t;
-typedef unsigned __int8 u8_t;
-typedef __int16 s16_t;
-typedef unsigned __int16 u16_t;
-typedef __int32 s32_t;
-typedef unsigned __int32 u32_t;
-typedef __int64 s64_t;
-typedef unsigned __int64 u64_t;
+typedef __int8 int8_t;
+typedef unsigned __int8 uint8_t;
+typedef __int16 int16_t;
+typedef unsigned __int16 uint16_t;
+typedef __int32 int32_t;
+typedef unsigned __int32 uint32_t;
+typedef __int64 int64_t;
+typedef unsigned __int64 uint64_t;
 #else
 #include <zephyr/types.h>
 #include <stddef.h>
 #endif
 #include <net/http_parser_state.h>
 #include <net/http_parser_url.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Maximium header size allowed. If the macro is not defined
  * before including this header then the default is used. To
@@ -74,7 +77,7 @@ struct http_parser_settings;
  * chunked' headers that indicate the presence of a body.
  *
  * Returning `2` from on_headers_complete will tell parser that it should not
- * expect neither a body nor any futher responses on this connection. This is
+ * expect neither a body nor any further responses on this connection. This is
  * useful for handling responses to a CONNECT request which may not contain
  * `Upgrade` or `Connection: upgrade` headers.
  *
@@ -188,8 +191,8 @@ struct http_parser {
 	unsigned int index : 7;        /* index into current matcher */
 	unsigned int lenient_http_headers : 1;
 
-	u32_t nread;          /* # bytes read in various scenarios */
-	u64_t content_length; /* # bytes in body (0 if no Content-Length
+	uint32_t nread;          /* # bytes read in various scenarios */
+	uint64_t content_length; /* # bytes in body (0 if no Content-Length
 				  * header)
 				  */
 	/** READ-ONLY **/
@@ -211,6 +214,11 @@ struct http_parser {
 	void *data; /* A pointer to get hook to the "connection" or "socket"
 		     * object
 		     */
+
+	/* Remote socket address of http connection, where parser can initiate
+	 * replies if necessary.
+	 */
+	const struct sockaddr *addr;
 };
 
 

@@ -1,72 +1,92 @@
-# Kconfig - GPIO configuration options
+# GPIO configuration options
 
-#
 # Copyright (c) 2015 Intel Corporation
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 menuconfig GPIO
-	bool
-	prompt "GPIO Drivers"
-	default n
+	bool "GPIO Drivers"
+	select HAS_DTS_GPIO
 	help
 	  Include GPIO drivers in system config
 
 if GPIO
 
-config SYS_LOG_GPIO_LEVEL
-	int
-	prompt "GPIO drivers log level"
-	default 0
-	depends on SYS_LOG
+module = GPIO
+module-str = gpio
+source "subsys/logging/Kconfig.template.log_config"
+
+config GPIO_SHELL
+	bool "Enable GPIO Shell"
+	depends on SHELL
 	help
-	Sets log level for GPIO drivers
-
-	Levels are:
-
-	- 0 OFF, do not write
-
-	- 1 ERROR, only write SYS_LOG_ERR
-
-	- 2 WARNING, write SYS_LOG_WRN in addition to previous level
-
-	- 3 INFO, write SYS_LOG_INF in addition to previous levels
-
-	- 4 DEBUG, write SYS_LOG_DBG in addition to previous levels
+	  Enable GPIO Shell for testing.
 
 source "drivers/gpio/Kconfig.dw"
 
-source "drivers/gpio/Kconfig.pcal9535a"
+source "drivers/gpio/Kconfig.pca95xx"
 
-source "drivers/gpio/Kconfig.qmsi"
-
-source "drivers/gpio/Kconfig.sch"
+source "drivers/gpio/Kconfig.mcp23s17"
 
 source "drivers/gpio/Kconfig.mcux"
 
 source "drivers/gpio/Kconfig.mcux_igpio"
 
-source "drivers/gpio/Kconfig.mmio32"
+source "drivers/gpio/Kconfig.mcux_lpc"
 
-source "drivers/gpio/Kconfig.atmel_sam3"
+source "drivers/gpio/Kconfig.mmio32"
 
 source "drivers/gpio/Kconfig.stm32"
 
-source "drivers/gpio/Kconfig.nrf5"
+source "drivers/gpio/Kconfig.nrfx"
 
 source "drivers/gpio/Kconfig.cmsdk_ahb"
 
+source "drivers/gpio/Kconfig.cc13xx_cc26xx"
+
 source "drivers/gpio/Kconfig.cc32xx"
 
-source "drivers/gpio/Kconfig.pulpino"
-
-source "drivers/gpio/Kconfig.fe310"
-
-source "drivers/gpio/Kconfig.cc2650"
+source "drivers/gpio/Kconfig.sifive"
 
 source "drivers/gpio/Kconfig.esp32"
 
 source "drivers/gpio/Kconfig.gecko"
+
+source "drivers/gpio/Kconfig.sam0"
+
+source "drivers/gpio/Kconfig.sam"
+
+source "drivers/gpio/Kconfig.sx1509b"
+
+source "drivers/gpio/Kconfig.imx"
+
+source "drivers/gpio/Kconfig.it8xxx2"
+
+source "drivers/gpio/Kconfig.intel"
+
+source "drivers/gpio/Kconfig.xec"
+
+source "drivers/gpio/Kconfig.stellaris"
+
+source "drivers/gpio/Kconfig.rv32m1"
+
+source "drivers/gpio/Kconfig.ht16k33"
+
+source "drivers/gpio/Kconfig.lmp90xxx"
+
+source "drivers/gpio/Kconfig.litex"
+
+source "drivers/gpio/Kconfig.lpc11u6x"
+
+source "drivers/gpio/Kconfig.xlnx"
+
+source "drivers/gpio/Kconfig.npcx"
+
+source "drivers/gpio/Kconfig.emul"
+
+source "drivers/gpio/Kconfig.psoc6"
+
+source "drivers/gpio/Kconfig.pcal6408a"
+
+source "drivers/gpio/Kconfig.eos_s3"
 
 endif # GPIO

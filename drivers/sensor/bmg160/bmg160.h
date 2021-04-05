@@ -6,12 +6,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _BMG160_H_
-#define _BMG160_H_
+#ifndef ZEPHYR_DRIVERS_SENSOR_BMG160_BMG160_H_
+#define ZEPHYR_DRIVERS_SENSOR_BMG160_BMG160_H_
 
-#include <i2c.h>
-#include <gpio.h>
-#include <misc/util.h>
+#include <drivers/i2c.h>
+#include <drivers/gpio.h>
+#include <sys/util.h>
 
 /* registers */
 #define BMG160_REG_CHIPID		0x00
@@ -175,24 +175,24 @@
 #define BMG160_BUS_SPEED	I2C_SPEED_FAST
 #endif
 
-/* end of default settigns */
+/* end of default settings */
 
 struct bmg160_device_config {
 	const char *i2c_port;
+	uint16_t i2c_addr;
+	uint8_t i2c_speed;
 #ifdef CONFIG_BMG160_TRIGGER
+	gpio_pin_t int_pin;
+	gpio_dt_flags_t int_flags;
 	const char *gpio_port;
-#endif
-	u16_t i2c_addr;
-	u8_t i2c_speed;
-#ifdef CONFIG_BMG160_TRIGGER
-	u8_t int_pin;
 #endif
 };
 
 struct bmg160_device_data {
-	struct device *i2c;
+	const struct device *i2c;
 #ifdef CONFIG_BMG160_TRIGGER
-	struct device *gpio;
+	const struct device *dev;
+	const struct device *gpio;
 	struct gpio_callback gpio_cb;
 #endif
 #ifdef CONFIG_BMG160_TRIGGER_OWN_THREAD
@@ -201,33 +201,32 @@ struct bmg160_device_data {
 	struct k_sem sem;
 #ifdef CONFIG_BMG160_TRIGGER_GLOBAL_THREAD
 	struct k_work work;
-	struct device *dev;
 #endif
 #ifdef CONFIG_BMG160_TRIGGER
 	sensor_trigger_handler_t anymotion_handler;
 	sensor_trigger_handler_t drdy_handler;
 #endif
-	s16_t raw_gyro_xyz[3];
-	u16_t scale;
-	u8_t range_idx;
+	int16_t raw_gyro_xyz[3];
+	uint16_t scale;
+	uint8_t range_idx;
 
-	s8_t raw_temp;
+	int8_t raw_temp;
 };
 
-int bmg160_trigger_init(struct device *dev);
-int bmg160_trigger_set(struct device *dev,
+int bmg160_trigger_init(const struct device *dev);
+int bmg160_trigger_set(const struct device *dev,
 		       const struct sensor_trigger *trig,
 		       sensor_trigger_handler_t handler);
-int bmg160_read(struct device *dev, u8_t reg_addr, u8_t *data,
-		u8_t len);
-int bmg160_read_byte(struct device *dev, u8_t reg_addr, u8_t *byte);
-int bmg160_update_byte(struct device *dev, u8_t reg_addr, u8_t mask,
-		       u8_t value);
-int bmg160_write_byte(struct device *dev, u8_t reg_addr, u8_t data);
-int bmg160_slope_config(struct device *dev, enum sensor_attribute attr,
+int bmg160_read(const struct device *dev, uint8_t reg_addr, uint8_t *data,
+		uint8_t len);
+int bmg160_read_byte(const struct device *dev, uint8_t reg_addr,
+		     uint8_t *byte);
+int bmg160_update_byte(const struct device *dev, uint8_t reg_addr,
+		       uint8_t mask,
+		       uint8_t value);
+int bmg160_write_byte(const struct device *dev, uint8_t reg_addr,
+		      uint8_t data);
+int bmg160_slope_config(const struct device *dev, enum sensor_attribute attr,
 			const struct sensor_value *val);
 
-#define SYS_LOG_DOMAIN "BMG160"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* _BMG160_H_ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_BMG160_BMG160_H_ */

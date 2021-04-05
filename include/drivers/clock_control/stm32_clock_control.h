@@ -6,18 +6,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef _STM32_CLOCK_CONTROL_H_
-#define _STM32_CLOCK_CONTROL_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_STM32_CLOCK_CONTROL_H_
+#define ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_STM32_CLOCK_CONTROL_H_
 
-#include <clock_control.h>
+#include <drivers/clock_control.h>
 #include <dt-bindings/clock/stm32_clock.h>
 
-/* common clock control device name for all STM32 chips */
-#define STM32_CLOCK_CONTROL_NAME "stm32-cc"
+/* common clock control device node for all STM32 chips */
+#define STM32_CLOCK_CONTROL_NODE DT_NODELABEL(rcc)
 
 struct stm32_pclken {
-	u32_t bus;
-	u32_t enr;
+	uint32_t bus;
+	uint32_t enr;
 };
 
-#endif /* _STM32_CLOCK_CONTROL_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_STM32_CLOCK_CONTROL_H_ */

@@ -1,5 +1,7 @@
-#ifndef __NIOS2_H__
-#define __NIOS2_H__
+#ifndef ZEPHYR_INCLUDE_ARCH_NIOS2_NIOS2_H_
+#define ZEPHYR_INCLUDE_ARCH_NIOS2_NIOS2_H_
+
+/* SPDX-License-Identifier: Xnet */
 
 /******************************************************************************
 *                                                                             *
@@ -53,29 +55,29 @@ extern "C"
 
 #include <zephyr/types.h>
 #include <arch/cpu.h>
-#include <sys_io.h>
+#include <arch/common/sys_io.h>
 
 /*
  * Functions for accessing select Nios II general-purpose registers.
  */
 
-/* ET (Exception Temporary) register */ 
-static inline u32_t _nios2_read_et(void)
+/* ET (Exception Temporary) register */
+static inline uint32_t _nios2_read_et(void)
 {
-	u32_t et;
+	uint32_t et;
 
 	__asm__("mov %0, et" : "=r" (et));
 	return et;
 }
 
-static inline void _nios2_write_et(u32_t et)
+static inline void _nios2_write_et(uint32_t et)
 {
 	__asm__ volatile("mov et, %z0" : : "rM" (et));
 }
 
-static inline u32_t _nios2_read_sp(void)
+static inline uint32_t _nios2_read_sp(void)
 {
-	u32_t sp;
+	uint32_t sp;
 
 	__asm__("mov %0, sp" : "=r" (sp));
 	return sp;
@@ -84,7 +86,7 @@ static inline u32_t _nios2_read_sp(void)
 /*
  * Functions for useful processor instructions.
  */
-static inline void _nios2_break(void)
+static inline void z_nios2_break(void)
 {
 	__asm__ volatile("break");
 }
@@ -102,17 +104,17 @@ static inline void _nios2_dcache_addr_flush(void *addr)
 	__asm__ volatile ("flushda (%0)" :: "r" (addr));
 }
 
-static inline void _nios2_dcache_flush(u32_t offset)
+static inline void z_nios2_dcache_flush(uint32_t offset)
 {
 	__asm__ volatile ("flushd (%0)" :: "r" (offset));
 }
 
-static inline void _nios2_icache_flush(u32_t offset)
+static inline void z_nios2_icache_flush(uint32_t offset)
 {
 	__asm__ volatile ("flushi %0" :: "r" (offset));
 }
 
-static inline void _nios2_pipeline_flush(void)
+static inline void z_nios2_pipeline_flush(void)
 {
 	__asm__ volatile ("flushp");
 }
@@ -145,27 +147,28 @@ enum nios2_creg {
  * we get errors "Control register number must be in range 0-31 for
  * __builtin_rdctl" with the following code:
  *
- * static inline u32_t _nios2_creg_read(enum nios2_creg reg)
+ * static inline uint32_t z_nios2_creg_read(enum nios2_creg reg)
  * {
  *          return __builtin_rdctl(reg);
  * }
  *
  * This compiles just fine with -Os.
  */
-#define _nios2_creg_read(reg) __builtin_rdctl(reg)
-#define _nios2_creg_write(reg, val) __builtin_wrctl(reg, val)
+#define z_nios2_creg_read(reg) __builtin_rdctl(reg)
+#define z_nios2_creg_write(reg, val) __builtin_wrctl(reg, val)
 
-#define _nios2_get_register_address(base, regnum) \
-	((void *)(((u8_t *)base) + ((regnum) * (SYSTEM_BUS_WIDTH / 8))))
+#define z_nios2_get_register_address(base, regnum) \
+	((void *)(((uint8_t *)base) + ((regnum) * (SYSTEM_BUS_WIDTH / 8))))
 
-static inline void _nios2_reg_write(void *base, int regnum, u32_t data)
+static inline void _nios2_reg_write(void *base, int regnum, uint32_t data)
 {
-	sys_write32(data, (mm_reg_t)_nios2_get_register_address(base, regnum));
+	sys_write32(data,
+		    (mm_reg_t)z_nios2_get_register_address(base, regnum));
 }
 
-static inline u32_t _nios2_reg_read(void *base, int regnum)
+static inline uint32_t _nios2_reg_read(void *base, int regnum)
 {
-	return sys_read32((mm_reg_t)_nios2_get_register_address(base, regnum));
+	return sys_read32((mm_reg_t)z_nios2_get_register_address(base, regnum));
 }
 
 #endif /* _ASMLANGUAGE */
@@ -322,4 +325,4 @@ static inline u32_t _nios2_reg_read(void *base, int regnum)
 }
 #endif /* __cplusplus */
 
-#endif /* __NIOS2_H__ */
+#endif /* ZEPHYR_INCLUDE_ARCH_NIOS2_NIOS2_H_ */

@@ -13,7 +13,7 @@ information to a serial console.
 Requirements
 ************
 
-- :ref:`networking_with_qemu`
+- :ref:`networking_with_host`
 
 Building and Running
 ********************
@@ -27,7 +27,7 @@ on Linux host.
 
 To use QEMU for testing, follow the :ref:`networking_with_qemu` guide.
 
-Here's a sample server configuration file '/etc/dhcpd/dhcp.conf'
+Here's a sample server configuration file '/etc/dhcp/dhcpd.conf'
 used to configure the DHCPv4 server:
 
 .. code-block:: console
@@ -51,6 +51,7 @@ Run Zephyr samples/net/dhcpv4_client application in QEMU:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/net/dhcpv4_client
+   :host-os: unix
    :board: qemu_x86
    :goals: run
    :compact:
@@ -120,6 +121,7 @@ Build Zephyr samples/net/dhcpv4_client application:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/net/dhcpv4_client
+   :host-os: unix
    :board: frdm_k64f
    :goals: build flash
    :compact:

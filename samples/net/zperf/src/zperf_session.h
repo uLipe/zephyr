@@ -10,7 +10,7 @@
 #include <toolchain.h>
 
 #include <zephyr.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
 #include <net/net_ip.h>
 #include <net/net_core.h>
@@ -34,29 +34,35 @@ enum session_proto {
 };
 
 struct session {
-	/* Tuple */
-	u16_t port;
-
+	/* Tuple for UDP */
+	uint16_t port;
 	struct net_addr ip;
+
+	/* TCP session */
+	struct net_context *ctx;
 
 	enum state state;
 
 	/* Stat data */
-	u32_t counter;
-	u32_t next_id;
-	u32_t outorder;
-	u32_t error;
-	u64_t length;
-	u32_t start_time;
-	u32_t last_time;
-	s32_t jitter;
-	s32_t last_transit_time;
+	uint32_t counter;
+	uint32_t next_id;
+	uint32_t outorder;
+	uint32_t error;
+	uint64_t length;
+	int64_t start_time;
+	uint32_t last_time;
+	int32_t jitter;
+	int32_t last_transit_time;
 
 	/* Stats packet*/
 	struct zperf_server_hdr stat;
 };
 
-struct session *get_session(struct net_pkt *pkt, enum session_proto proto);
+struct session *get_session(struct net_pkt *pkt,
+			    union net_ip_header *ip_hdr,
+			    union net_proto_header *proto_hdr,
+			    enum session_proto proto);
+struct session *get_tcp_session(struct net_context *ctx);
 void zperf_session_init(void);
 void zperf_reset_session_stats(struct session *session);
 

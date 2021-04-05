@@ -4,33 +4,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT ti_tmp007
+
 #include <device.h>
-#include <i2c.h>
-#include <gpio.h>
-#include <misc/byteorder.h>
-#include <misc/util.h>
+#include <drivers/i2c.h>
+#include <drivers/gpio.h>
+#include <sys/byteorder.h>
+#include <sys/util.h>
 #include <kernel.h>
-#include <sensor.h>
-#include <misc/__assert.h>
+#include <drivers/sensor.h>
+#include <sys/__assert.h>
+#include <logging/log.h>
 
 #include "tmp007.h"
 
-int tmp007_reg_read(struct tmp007_data *drv_data, u8_t reg, u16_t *val)
-{
-	struct i2c_msg msgs[2] = {
-		{
-			.buf = &reg,
-			.len = 1,
-			.flags = I2C_MSG_WRITE | I2C_MSG_RESTART,
-		},
-		{
-			.buf = (u8_t *)val,
-			.len = 2,
-			.flags = I2C_MSG_READ | I2C_MSG_STOP,
-		},
-	};
+LOG_MODULE_REGISTER(TMP007, CONFIG_SENSOR_LOG_LEVEL);
 
-	if (i2c_transfer(drv_data->i2c, msgs, 2, TMP007_I2C_ADDRESS) < 0) {
+int tmp007_reg_read(struct tmp007_data *drv_data,
+		uint8_t reg, uint16_t *val)
+{
+	if (i2c_burst_read(drv_data->i2c, TMP007_I2C_ADDRESS,
+				reg, (uint8_t *) val, 2) < 0) {
+		LOG_ERR("I2C read failed");
 		return -EIO;
 	}
 
@@ -39,19 +34,19 @@ int tmp007_reg_read(struct tmp007_data *drv_data, u8_t reg, u16_t *val)
 	return 0;
 }
 
-int tmp007_reg_write(struct tmp007_data *drv_data, u8_t reg, u16_t val)
+int tmp007_reg_write(struct tmp007_data *drv_data, uint8_t reg, uint16_t val)
 {
-	u8_t tx_buf[3] = {reg, val >> 8, val & 0xFF};
+	uint8_t tx_buf[3] = {reg, val >> 8, val & 0xFF};
 
 	return i2c_write(drv_data->i2c, tx_buf, sizeof(tx_buf),
 			 TMP007_I2C_ADDRESS);
 }
 
-int tmp007_reg_update(struct tmp007_data *drv_data, u8_t reg,
-		      u16_t mask, u16_t val)
+int tmp007_reg_update(struct tmp007_data *drv_data, uint8_t reg,
+		      uint16_t mask, uint16_t val)
 {
-	u16_t old_val = 0;
-	u16_t new_val;
+	uint16_t old_val = 0U;
+	uint16_t new_val;
 
 	if (tmp007_reg_read(drv_data, reg, &old_val) < 0) {
 		return -EIO;
@@ -63,12 +58,13 @@ int tmp007_reg_update(struct tmp007_data *drv_data, u8_t reg,
 	return tmp007_reg_write(drv_data, reg, new_val);
 }
 
-static int tmp007_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int tmp007_sample_fetch(const struct device *dev,
+			       enum sensor_channel chan)
 {
-	struct tmp007_data *drv_data = dev->driver_data;
-	u16_t val;
+	struct tmp007_data *drv_data = dev->data;
+	uint16_t val;
 
-	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_TEMP);
+	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_AMBIENT_TEMP);
 
 	if (tmp007_reg_read(drv_data, TMP007_REG_TOBJ, &val) < 0) {
 		return -EIO;
@@ -78,23 +74,23 @@ static int tmp007_sample_fetch(struct device *dev, enum sensor_channel chan)
 		return -EIO;
 	}
 
-	drv_data->sample = arithmetic_shift_right((s16_t)val, 2);
+	drv_data->sample = arithmetic_shift_right((int16_t)val, 2);
 
 	return 0;
 }
 
-static int tmp007_channel_get(struct device *dev,
+static int tmp007_channel_get(const struct device *dev,
 			       enum sensor_channel chan,
 			       struct sensor_value *val)
 {
-	struct tmp007_data *drv_data = dev->driver_data;
-	s32_t uval;
+	struct tmp007_data *drv_data = dev->data;
+	int32_t uval;
 
-	if (chan != SENSOR_CHAN_TEMP) {
+	if (chan != SENSOR_CHAN_AMBIENT_TEMP) {
 		return -ENOTSUP;
 	}
 
-	uval = (s32_t)drv_data->sample * TMP007_TEMP_SCALE;
+	uval = (int32_t)drv_data->sample * TMP007_TEMP_SCALE;
 	val->val1 = uval / 1000000;
 	val->val2 = uval % 1000000;
 
@@ -110,30 +106,30 @@ static const struct sensor_driver_api tmp007_driver_api = {
 	.channel_get = tmp007_channel_get,
 };
 
-int tmp007_init(struct device *dev)
+int tmp007_init(const struct device *dev)
 {
-	struct tmp007_data *drv_data = dev->driver_data;
+	struct tmp007_data *drv_data = dev->data;
 
-	drv_data->i2c = device_get_binding(CONFIG_TMP007_I2C_MASTER_DEV_NAME);
+	drv_data->i2c = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (drv_data->i2c == NULL) {
-		SYS_LOG_DBG("Failed to get pointer to %s device!",
-			    CONFIG_TMP007_I2C_MASTER_DEV_NAME);
+		LOG_DBG("Failed to get pointer to %s device!",
+			    DT_INST_BUS_LABEL(0));
 		return -EINVAL;
 	}
 
 #ifdef CONFIG_TMP007_TRIGGER
 	if (tmp007_init_interrupt(dev) < 0) {
-		SYS_LOG_DBG("Failed to initialize interrupt!");
+		LOG_DBG("Failed to initialize interrupt!");
 		return -EIO;
 	}
 #endif
-
-	dev->driver_api = &tmp007_driver_api;
 
 	return 0;
 }
 
 struct tmp007_data tmp007_driver;
 
-DEVICE_INIT(tmp007, CONFIG_TMP007_NAME, tmp007_init, &tmp007_driver,
-	    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY);
+DEVICE_DT_INST_DEFINE(0, tmp007_init, device_pm_control_nop,
+		    &tmp007_driver,
+		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
+		    &tmp007_driver_api);

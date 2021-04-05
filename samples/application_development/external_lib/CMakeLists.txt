@@ -1,5 +1,8 @@
-include($ENV{ZEPHYR_BASE}/cmake/app/boilerplate.cmake NO_POLICY_SCOPE)
-project(NONE)
+# SPDX-License-Identifier: Apache-2.0
+
+cmake_minimum_required(VERSION 3.13.1)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(external_lib)
 
 target_sources(app PRIVATE src/main.c)
 
@@ -27,6 +30,17 @@ include(ExternalProject)
 # been committed to the repository.
 set(mylib_src_dir   ${CMAKE_CURRENT_SOURCE_DIR}/mylib)
 set(mylib_build_dir ${CMAKE_CURRENT_BINARY_DIR}/mylib)
+
+set(MYLIB_LIB_DIR     ${mylib_build_dir}/lib)
+set(MYLIB_INCLUDE_DIR ${mylib_src_dir}/include)
+
+if(CMAKE_GENERATOR STREQUAL "Unix Makefiles")
+# https://www.gnu.org/software/make/manual/html_node/MAKE-Variable.html
+set(submake "$(MAKE)")
+else() # Obviously no MAKEFLAGS. Let's hope a "make" can be found somewhere.
+set(submake "make")
+endif()
+
 ExternalProject_Add(
   mylib_project                 # Name for custom target
   PREFIX     ${mylib_build_dir} # Root dir for entire project
@@ -34,17 +48,17 @@ ExternalProject_Add(
   BINARY_DIR ${mylib_src_dir} # This particular build system is invoked from the root
   CONFIGURE_COMMAND ""    # Skip configuring the project, e.g. with autoconf
   BUILD_COMMAND
-  make
+  ${submake}
   PREFIX=${mylib_build_dir}
   CC=${CMAKE_C_COMPILER}
+  AR=${CMAKE_AR}
   CFLAGS=${external_project_cflags}
   INSTALL_COMMAND ""      # This particular build system has no install command
+  BUILD_BYPRODUCTS ${MYLIB_LIB_DIR}/libmylib.a
   )
-set(MYLIB_INCLUDE_DIR ${mylib_src_dir}/include)
-set(MYLIB_LIB_DIR     ${mylib_build_dir}/lib)
 
 # Create a wrapper CMake library that our app can link with
-add_library(mylib_lib STATIC IMPORTED)
+add_library(mylib_lib STATIC IMPORTED GLOBAL)
 add_dependencies(
   mylib_lib
   mylib_project
@@ -52,4 +66,4 @@ add_dependencies(
 set_target_properties(mylib_lib PROPERTIES IMPORTED_LOCATION             ${MYLIB_LIB_DIR}/libmylib.a)
 set_target_properties(mylib_lib PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${MYLIB_INCLUDE_DIR})
 
-target_link_libraries(app mylib_lib)
+target_link_libraries(app PUBLIC mylib_lib)

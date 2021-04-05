@@ -12,12 +12,12 @@ show how it's possible to develop a sockets application portable to both
 POSIX and Zephyr. As such, it is kept minimal and supports only IPv4 and TCP.
 
 The source code for this sample application can be found at:
-:file:`samples/net/sockets/echo`.
+:zephyr_file:`samples/net/sockets/echo`.
 
 Requirements
 ************
 
-- :ref:`networking_with_qemu`
+- :ref:`networking_with_host`
 - or, a board with hardware networking
 
 Building and Running
@@ -30,12 +30,6 @@ Build the Zephyr version of the sockets/echo application like this:
    :board: <board_to_use>
    :goals: build
    :compact:
-
-``board_to_use`` defaults to ``qemu_x86``. In this case, you can run the
-application in QEMU using ``make run``. If you used another BOARD, you
-will need to consult its documentation for application deployment
-instructions. You can read about Zephyr support for specific boards in
-the documentation at :ref:`boards`.
 
 After the sample starts, it expects connections at 192.0.2.1, port 4242.
 The easiest way to connect is:
@@ -76,3 +70,14 @@ To test:
 
 As can be seen, the behavior of the application is the same as the Zephyr
 version.
+
+Running on cc3220sf_launchxl
+============================
+
+See the note on Provisioning and Fast Connect in :ref:`cc3220sf_launchxl`.
+
+After having connected to an Access Point using the sample Wi-Fi shell,
+the IP address will be printed to the console upon running this echo
+application.
+
+Proceed to test as above.

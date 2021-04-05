@@ -8,11 +8,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_LSM9DS0_MFD_H__
-#define __SENSOR_LSM9DS0_MFD_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_LSM9DS0_MFD_LSM9DS0_MFD_H_
+#define ZEPHYR_DRIVERS_SENSOR_LSM9DS0_MFD_LSM9DS0_MFD_H_
 
 #include <zephyr/types.h>
-#include <misc/util.h>
+#include <sys/util.h>
 
 #define LSM9DS0_MFD_REG_OUT_TEMP_L_XM		0x05
 #define LSM9DS0_MFD_REG_OUT_TEMP_H_XM		0x06
@@ -394,8 +394,6 @@
 						 BIT(1) | BIT(0))
 #define LMS9DS0_MFD_SHIFT_ACT_DUR_ACTD          0
 
-#define LSM9DS0_MFD_I2C_ADDR			CONFIG_LSM9DS0_MFD_I2C_ADDR
-
 #if defined(CONFIG_LSM9DS0_MFD_ACCEL_SAMPLING_RATE_0)
 	#define LSM9DS0_MFD_ACCEL_DEFAULT_AODR	0
 #elif defined(CONFIG_LSM9DS0_MFD_ACCEL_SAMPLING_RATE_3_125)
@@ -526,11 +524,11 @@
 
 struct lsm9ds0_mfd_config {
 	char *i2c_master_dev_name;
-	u16_t i2c_slave_addr;
+	uint16_t i2c_slave_addr;
 };
 
 struct lsm9ds0_mfd_data {
-	struct device *i2c_master;
+	const struct device *i2c_master;
 
 #if !defined(LSM9DS0_MFD_ACCEL_DISABLED)
 	int sample_accel_x, sample_accel_y, sample_accel_z;
@@ -546,18 +544,15 @@ struct lsm9ds0_mfd_data {
 
 #if defined(CONFIG_LSM9DS0_MFD_ACCEL_FULL_SCALE_RUNTIME)
 #if !defined(LSM9DS0_MFD_ACCEL_DISABLED)
-	u8_t accel_fs, sample_accel_fs;
+	uint8_t accel_fs, sample_accel_fs;
 #endif
 #endif
 
 #if defined(CONFIG_LSM9DS0_MFD_MAGN_FULL_SCALE_RUNTIME)
 #if !defined(LSM9DS0_MFD_MAGN_DISABLED)
-	u8_t magn_fs, sample_magn_fs;
+	uint8_t magn_fs, sample_magn_fs;
 #endif
 #endif
 };
 
-#define SYS_LOG_DOMAIN "LSM9DS0_MFD"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_LSM9DS0_MFD_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_LSM9DS0_MFD_LSM9DS0_MFD_H_ */

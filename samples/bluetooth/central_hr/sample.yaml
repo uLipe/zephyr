@@ -1,8 +1,7 @@
 sample:
-  description: TBD
-  name: TBD
+  name: Bluetooth Central HR
 tests:
-  - test:
-      arch_whitelist: x86
-      build_only: true
-      tags: bluetooth
+  sample.bluetooth.central_hr:
+    arch_allow: x86
+    harness: bluetooth
+    tags: bluetooth

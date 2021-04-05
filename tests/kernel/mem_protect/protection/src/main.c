@@ -15,27 +15,26 @@
 
 #include "targets.h"
 
+/* 32-bit IA32 page tables have no mechanism to restrict execution */
+#if defined(CONFIG_X86) && !defined(CONFIG_X86_64) && !defined(CONFIG_X86_PAE)
+#define SKIP_EXECUTE_TESTS
+#endif
+
+/* RISC-V have no mechanism to restrict execution */
+#if defined(CONFIG_RISCV)
+#define SKIP_EXECUTE_TESTS
+#endif
+
 #define INFO(fmt, ...) printk(fmt, ##__VA_ARGS__)
 
-/* ARM is a special case, in that k_thread_abort() does indeed return
- * instead of calling _Swap() directly. The PendSV exception is queued
- * and immediately fires upon completing the exception path; the faulting
- * thread is never run again.
- */
-#ifndef CONFIG_ARM
-FUNC_NORETURN
-#endif
-void _SysFatalErrorHandler(unsigned int reason, const NANO_ESF *pEsf)
+void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *pEsf)
 {
 	INFO("Caught system error -- reason %d\n", reason);
 	ztest_test_pass();
-#ifndef CONFIG_ARM
-	CODE_UNREACHABLE;
-#endif
 }
 
 #ifdef CONFIG_CPU_CORTEX_M
-#include <arch/arm/cortex_m/cmsis.h>
+#include <arch/arm/aarch32/cortex_m/cmsis.h>
 /* Must clear LSB of function address to access as data. */
 #define FUNC_TO_PTR(x) (void *)((uintptr_t)(x) & ~0x1)
 /* Must set LSB of function address to call in Thumb mode. */
@@ -48,27 +47,13 @@ void _SysFatalErrorHandler(unsigned int reason, const NANO_ESF *pEsf)
 #define DO_BARRIERS() do { } while (0)
 #endif
 
-#if defined(CONFIG_ARM)
-#define NO_EXECUTE_SUPPORT 1
-#elif defined(CONFIG_ARC)
-#define NO_EXECUTE_SUPPORT 1
-#elif defined(CONFIG_X86)
-#if defined(CONFIG_X86_PAE_MODE)
-#define NO_EXECUTE_SUPPORT 1
-#else
-/* 32-bit paging mode in x86 doesn't support execute disable capability.*/
-#endif	/* x86 */
-#else
-#error "Architecture not supported"
-#endif
-
 static int __attribute__((noinline)) add_one(int i)
 {
 	return (i + 1);
 }
 
-#ifdef NO_EXECUTE_SUPPORT
-static void execute_from_buffer(u8_t *dst)
+#ifndef SKIP_EXECUTE_TESTS
+static void execute_from_buffer(uint8_t *dst)
 {
 	void *src = FUNC_TO_PTR(add_one);
 	int (*func)(int i) = PTR_TO_FUNC(dst);
@@ -94,11 +79,16 @@ static void execute_from_buffer(u8_t *dst)
 		INFO("Did not get expected return value!\n");
 	}
 }
-#endif
+#endif /* SKIP_EXECUTE_TESTS */
 
-static void write_ro(void)
+/**
+ * @brief Test write to read only section
+ *
+ * @ingroup kernel_memprotect_tests
+ */
+static void test_write_ro(void)
 {
-	u32_t *ptr = (u32_t *)&rodata_var;
+	volatile uint32_t *ptr = (volatile uint32_t *)&rodata_var;
 
 	/*
 	 * Try writing to rodata.  Optimally, this triggers a fault.
@@ -120,7 +110,12 @@ static void write_ro(void)
 	zassert_unreachable("Write to rodata did not fault");
 }
 
-static void write_text(void)
+/**
+ * @brief Test to execute on text section
+ *
+ * @ingroup kernel_memprotect_tests
+ */
+static void test_write_text(void)
 {
 	void *src = FUNC_TO_PTR(add_one);
 	void *dst = FUNC_TO_PTR(overwrite_target);
@@ -146,45 +141,67 @@ static void write_text(void)
 	zassert_unreachable("Write to text did not fault");
 }
 
-#ifdef NO_EXECUTE_SUPPORT
-static void exec_data(void)
+/**
+ * @brief Test execution from data section
+ *
+ * @ingroup kernel_memprotect_tests
+ */
+static void test_exec_data(void)
 {
+#ifdef SKIP_EXECUTE_TESTS
+	ztest_test_skip();
+#else
 	execute_from_buffer(data_buf);
 	zassert_unreachable("Execute from data did not fault");
+#endif
 }
 
-static void exec_stack(void)
+/**
+ * @brief Test execution from stack section
+ *
+ * @ingroup kernel_memprotect_tests
+ */
+static void test_exec_stack(void)
 {
-	u8_t stack_buf[BUF_SIZE] __aligned(sizeof(int));
+#ifdef SKIP_EXECUTE_TESTS
+	ztest_test_skip();
+#else
+	uint8_t stack_buf[BUF_SIZE] __aligned(sizeof(int));
 
 	execute_from_buffer(stack_buf);
 	zassert_unreachable("Execute from stack did not fault");
+#endif
 }
 
-#if (CONFIG_HEAP_MEM_POOL_SIZE > 0)
-static void exec_heap(void)
+/**
+ * @brief Test execution from heap
+ *
+ * @ingroup kernel_memprotect_tests
+ */
+#if (CONFIG_HEAP_MEM_POOL_SIZE > 0) && !defined(SKIP_EXECUTE_TESTS)
+static void test_exec_heap(void)
 {
-	u8_t *heap_buf = k_malloc(BUF_SIZE);
+	uint8_t *heap_buf = k_malloc(BUF_SIZE);
 
 	execute_from_buffer(heap_buf);
 	k_free(heap_buf);
 	zassert_unreachable("Execute from heap did not fault");
 }
+#else
+static void test_exec_heap(void)
+{
+	ztest_test_skip();
+}
 #endif
-#endif /* NO_EXECUTE_SUPPORT */
 
 void test_main(void)
 {
-	ztest_test_suite(test_protection,
-#ifdef NO_EXECUTE_SUPPORT
-			 ztest_unit_test(exec_data),
-			 ztest_unit_test(exec_stack),
-#if (CONFIG_HEAP_MEM_POOL_SIZE > 0)
-			 ztest_unit_test(exec_heap),
-#endif
-#endif /* NO_EXECUTE_SUPPORT */
-			 ztest_unit_test(write_ro),
-			 ztest_unit_test(write_text)
+	ztest_test_suite(protection,
+			 ztest_unit_test(test_exec_data),
+			 ztest_unit_test(test_exec_stack),
+			 ztest_unit_test(test_exec_heap),
+			 ztest_unit_test(test_write_ro),
+			 ztest_unit_test(test_write_text)
 		);
-	ztest_run_test_suite(test_protection);
+	ztest_run_test_suite(protection);
 }

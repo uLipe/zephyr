@@ -5,234 +5,302 @@
  */
 
 #if defined(CONFIG_NET_STATISTICS_PERIODIC_OUTPUT)
-#define SYS_LOG_DOMAIN "net/stats"
-#define NET_SYS_LOG_LEVEL SYS_LOG_LEVEL_INFO
-#define NET_LOG_ENABLED 1
+#define NET_LOG_LEVEL LOG_LEVEL_INF
+#else
+#define NET_LOG_LEVEL CONFIG_NET_STATISTICS_LOG_LEVEL
 #endif
+
+#include <logging/log.h>
+LOG_MODULE_REGISTER(net_stats, NET_LOG_LEVEL);
 
 #include <kernel.h>
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <net/net_core.h>
 
 #include "net_stats.h"
+#include "net_private.h"
 
-struct net_stats net_stats;
+/* Global network statistics.
+ *
+ * The variable needs to be global so that the GET_STAT() macro can access it
+ * from net_shell.c
+ */
+struct net_stats net_stats = { 0 };
 
-#ifdef CONFIG_NET_STATISTICS_PERIODIC_OUTPUT
+#if defined(CONFIG_NET_STATISTICS_PERIODIC_OUTPUT)
 
 #define PRINT_STATISTICS_INTERVAL (30 * MSEC_PER_SEC)
 
-static inline void stats(void)
+#if NET_TC_COUNT > 1
+static const char *priority2str(enum net_priority priority)
 {
-	static s64_t next_print;
-	s64_t curr = k_uptime_get();
+	switch (priority) {
+	case NET_PRIORITY_BK:
+		return "BK"; /* Background */
+	case NET_PRIORITY_BE:
+		return "BE"; /* Best effort */
+	case NET_PRIORITY_EE:
+		return "EE"; /* Excellent effort */
+	case NET_PRIORITY_CA:
+		return "CA"; /* Critical applications */
+	case NET_PRIORITY_VI:
+		return "VI"; /* Video, < 100 ms latency and jitter */
+	case NET_PRIORITY_VO:
+		return "VO"; /* Voice, < 10 ms latency and jitter  */
+	case NET_PRIORITY_IC:
+		return "IC"; /* Internetwork control */
+	case NET_PRIORITY_NC:
+		return "NC"; /* Network control */
+	}
 
-	if (!next_print || (next_print < curr &&
-	    (!((curr - next_print) > PRINT_STATISTICS_INTERVAL)))) {
-		s64_t new_print;
+	return "??";
+}
+#endif
+
+static inline int64_t cmp_val(uint64_t val1, uint64_t val2)
+{
+	return (int64_t)(val1 - val2);
+}
+
+static inline void stats(struct net_if *iface)
+{
+	static uint64_t next_print;
+	uint64_t curr = k_uptime_get();
+	int64_t cmp = cmp_val(curr, next_print);
+	int i;
+
+	if (!next_print || (abs(cmp) > PRINT_STATISTICS_INTERVAL)) {
+		if (iface) {
+			NET_INFO("Interface %p [%d]", iface,
+				 net_if_get_by_iface(iface));
+		} else {
+			NET_INFO("Global statistics:");
+		}
 
 #if defined(CONFIG_NET_STATISTICS_IPV6)
 		NET_INFO("IPv6 recv      %d\tsent\t%d\tdrop\t%d\tforwarded\t%d",
-			 GET_STAT(ipv6.recv),
-			 GET_STAT(ipv6.sent),
-			 GET_STAT(ipv6.drop),
-			 GET_STAT(ipv6.forwarded));
+			 GET_STAT(iface, ipv6.recv),
+			 GET_STAT(iface, ipv6.sent),
+			 GET_STAT(iface, ipv6.drop),
+			 GET_STAT(iface, ipv6.forwarded));
 #if defined(CONFIG_NET_STATISTICS_IPV6_ND)
 		NET_INFO("IPv6 ND recv   %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(ipv6_nd.recv),
-			 GET_STAT(ipv6_nd.sent),
-			 GET_STAT(ipv6_nd.drop));
+			 GET_STAT(iface, ipv6_nd.recv),
+			 GET_STAT(iface, ipv6_nd.sent),
+			 GET_STAT(iface, ipv6_nd.drop));
 #endif /* CONFIG_NET_STATISTICS_IPV6_ND */
 #if defined(CONFIG_NET_STATISTICS_MLD)
 		NET_INFO("IPv6 MLD recv  %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(ipv6_mld.recv),
-			 GET_STAT(ipv6_mld.sent),
-			 GET_STAT(ipv6_mld.drop));
+			 GET_STAT(iface, ipv6_mld.recv),
+			 GET_STAT(iface, ipv6_mld.sent),
+			 GET_STAT(iface, ipv6_mld.drop));
 #endif /* CONFIG_NET_STATISTICS_MLD */
 #endif /* CONFIG_NET_STATISTICS_IPV6 */
 
 #if defined(CONFIG_NET_STATISTICS_IPV4)
 		NET_INFO("IPv4 recv      %d\tsent\t%d\tdrop\t%d\tforwarded\t%d",
-			 GET_STAT(ipv4.recv),
-			 GET_STAT(ipv4.sent),
-			 GET_STAT(ipv4.drop),
-			 GET_STAT(ipv4.forwarded));
+			 GET_STAT(iface, ipv4.recv),
+			 GET_STAT(iface, ipv4.sent),
+			 GET_STAT(iface, ipv4.drop),
+			 GET_STAT(iface, ipv4.forwarded));
 #endif /* CONFIG_NET_STATISTICS_IPV4 */
 
 		NET_INFO("IP vhlerr      %d\thblener\t%d\tlblener\t%d",
-			 GET_STAT(ip_errors.vhlerr),
-			 GET_STAT(ip_errors.hblenerr),
-			 GET_STAT(ip_errors.lblenerr));
+			 GET_STAT(iface, ip_errors.vhlerr),
+			 GET_STAT(iface, ip_errors.hblenerr),
+			 GET_STAT(iface, ip_errors.lblenerr));
 		NET_INFO("IP fragerr     %d\tchkerr\t%d\tprotoer\t%d",
-			 GET_STAT(ip_errors.fragerr),
-			 GET_STAT(ip_errors.chkerr),
-			 GET_STAT(ip_errors.protoerr));
+			 GET_STAT(iface, ip_errors.fragerr),
+			 GET_STAT(iface, ip_errors.chkerr),
+			 GET_STAT(iface, ip_errors.protoerr));
 
 		NET_INFO("ICMP recv      %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(icmp.recv),
-			 GET_STAT(icmp.sent),
-			 GET_STAT(icmp.drop));
+			 GET_STAT(iface, icmp.recv),
+			 GET_STAT(iface, icmp.sent),
+			 GET_STAT(iface, icmp.drop));
 		NET_INFO("ICMP typeer    %d\tchkerr\t%d",
-			 GET_STAT(icmp.typeerr),
-			 GET_STAT(icmp.chkerr));
+			 GET_STAT(iface, icmp.typeerr),
+			 GET_STAT(iface, icmp.chkerr));
 
 #if defined(CONFIG_NET_STATISTICS_UDP)
 		NET_INFO("UDP recv       %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(udp.recv),
-			 GET_STAT(udp.sent),
-			 GET_STAT(udp.drop));
+			 GET_STAT(iface, udp.recv),
+			 GET_STAT(iface, udp.sent),
+			 GET_STAT(iface, udp.drop));
 		NET_INFO("UDP chkerr     %d",
-			 GET_STAT(udp.chkerr));
+			 GET_STAT(iface, udp.chkerr));
 #endif
 
 #if defined(CONFIG_NET_STATISTICS_TCP)
 		NET_INFO("TCP bytes recv %u\tsent\t%d",
-			 GET_STAT(tcp.bytes.received),
-			 GET_STAT(tcp.bytes.sent));
+			 GET_STAT(iface, tcp.bytes.received),
+			 GET_STAT(iface, tcp.bytes.sent));
 		NET_INFO("TCP seg recv   %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(tcp.recv),
-			 GET_STAT(tcp.sent),
-			 GET_STAT(tcp.drop));
+			 GET_STAT(iface, tcp.recv),
+			 GET_STAT(iface, tcp.sent),
+			 GET_STAT(iface, tcp.drop));
 		NET_INFO("TCP seg resent %d\tchkerr\t%d\tackerr\t%d",
-			 GET_STAT(tcp.resent),
-			 GET_STAT(tcp.chkerr),
-			 GET_STAT(tcp.ackerr));
+			 GET_STAT(iface, tcp.resent),
+			 GET_STAT(iface, tcp.chkerr),
+			 GET_STAT(iface, tcp.ackerr));
 		NET_INFO("TCP seg rsterr %d\trst\t%d\tre-xmit\t%d",
-			 GET_STAT(tcp.rsterr),
-			 GET_STAT(tcp.rst),
-			 GET_STAT(tcp.rexmit));
+			 GET_STAT(iface, tcp.rsterr),
+			 GET_STAT(iface, tcp.rst),
+			 GET_STAT(iface, tcp.rexmit));
 		NET_INFO("TCP conn drop  %d\tconnrst\t%d",
-			 GET_STAT(tcp.conndrop),
-			 GET_STAT(tcp.connrst));
+			 GET_STAT(iface, tcp.conndrop),
+			 GET_STAT(iface, tcp.connrst));
 #endif
 
-#if defined(CONFIG_NET_STATISTICS_RPL)
-		NET_INFO("RPL DIS recv   %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(rpl.dis.recv),
-			 GET_STAT(rpl.dis.sent),
-			 GET_STAT(rpl.dis.drop));
-		NET_INFO("RPL DIO recv   %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(rpl.dio.recv),
-			 GET_STAT(rpl.dio.sent),
-			 GET_STAT(rpl.dio.drop));
-		NET_INFO("RPL DAO recv   %d\tsent\t%d\tdrop\t%d\tforwarded\t%d",
-			 GET_STAT(rpl.dao.recv),
-			 GET_STAT(rpl.dao.sent),
-			 GET_STAT(rpl.dao.drop),
-			 GET_STAT(rpl.dao.forwarded));
-		NET_INFO("RPL DAOACK rcv %d\tsent\t%d\tdrop\t%d",
-			 GET_STAT(rpl.dao_ack.recv),
-			 GET_STAT(rpl.dao_ack.sent),
-			 GET_STAT(rpl.dao_ack.drop));
-		NET_INFO("RPL overflows  %d\tl-repairs\t%d\tg-repairs\t%d",
-			 GET_STAT(rpl.mem_overflows),
-			 GET_STAT(rpl.local_repairs),
-			 GET_STAT(rpl.global_repairs));
-		NET_INFO("RPL malformed  %d\tresets   \t%d\tp-switch\t%d",
-			 GET_STAT(rpl.malformed_msgs),
-			 GET_STAT(rpl.resets),
-			 GET_STAT(rpl.parent_switch));
-		NET_INFO("RPL f-errors   %d\tl-errors\t%d\tl-warnings\t%d",
-			 GET_STAT(rpl.forward_errors),
-			 GET_STAT(rpl.loop_errors),
-			 GET_STAT(rpl.loop_warnings));
-		NET_INFO("RPL r-repairs  %d",
-			 GET_STAT(rpl.root_repairs));
-#endif /* CONFIG_NET_STATISTICS_RPL */
+		NET_INFO("Bytes received %u", GET_STAT(iface, bytes.received));
+		NET_INFO("Bytes sent     %u", GET_STAT(iface, bytes.sent));
+		NET_INFO("Processing err %d",
+			 GET_STAT(iface, processing_error));
 
-		NET_INFO("Bytes received %u", GET_STAT(bytes.received));
-		NET_INFO("Bytes sent     %u", GET_STAT(bytes.sent));
-		NET_INFO("Processing err %d", GET_STAT(processing_error));
+#if NET_TC_COUNT > 1
+#if NET_TC_TX_COUNT > 1
+		NET_INFO("TX traffic class statistics:");
+		NET_INFO("TC  Priority\tSent pkts\tbytes");
 
-		new_print = curr + PRINT_STATISTICS_INTERVAL;
-		if (new_print > curr) {
-			next_print = new_print;
-		} else {
-			/* Overflow */
-			next_print = PRINT_STATISTICS_INTERVAL -
-				(LLONG_MAX - curr);
+		for (i = 0; i < NET_TC_TX_COUNT; i++) {
+			NET_INFO("[%d] %s (%d)\t%d\t\t%d", i,
+				 priority2str(GET_STAT(iface,
+						       tc.sent[i].priority)),
+				 GET_STAT(iface, tc.sent[i].priority),
+				 GET_STAT(iface, tc.sent[i].pkts),
+				 GET_STAT(iface, tc.sent[i].bytes));
 		}
+#endif
+
+#if NET_TC_RX_COUNT > 1
+		NET_INFO("RX traffic class statistics:");
+		NET_INFO("TC  Priority\tRecv pkts\tbytes");
+
+		for (i = 0; i < NET_TC_RX_COUNT; i++) {
+			NET_INFO("[%d] %s (%d)\t%d\t\t%d", i,
+				 priority2str(GET_STAT(iface,
+						       tc.recv[i].priority)),
+				 GET_STAT(iface, tc.recv[i].priority),
+				 GET_STAT(iface, tc.recv[i].pkts),
+				 GET_STAT(iface, tc.recv[i].bytes));
+		}
+#endif
+#else /* NET_TC_COUNT > 1 */
+		ARG_UNUSED(i);
+#endif /* NET_TC_COUNT > 1 */
+
+#if defined(CONFIG_NET_STATISTICS_POWER_MANAGEMENT)
+		NET_INFO("Power management statistics:");
+		NET_INFO("Last suspend time: %u ms",
+			 GET_STAT(iface, pm.last_suspend_time));
+		NET_INFO("Got suspended %d times",
+			 GET_STAT(iface, pm.suspend_count));
+		NET_INFO("Average suspend time: %u ms",
+			 (uint32_t)(GET_STAT(iface, pm.overall_suspend_time) /
+				 GET_STAT(iface, pm.suspend_count)));
+		NET_INFO("Total suspended time: %llu ms",
+			 GET_STAT(iface, pm.overall_suspend_time));
+#endif
+		next_print = curr + PRINT_STATISTICS_INTERVAL;
 	}
 }
 
-void net_print_statistics(void)
+void net_print_statistics_iface(struct net_if *iface)
 {
 	/* In order to make the info print lines shorter, use shorter
 	 * function name.
 	 */
-	stats();
+	stats(iface);
+}
+
+static void iface_cb(struct net_if *iface, void *user_data)
+{
+	net_print_statistics_iface(iface);
+}
+
+void net_print_statistics_all(void)
+{
+	net_if_foreach(iface_cb, NULL);
+}
+
+void net_print_statistics(void)
+{
+	net_print_statistics_iface(NULL);
 }
 
 #endif /* CONFIG_NET_STATISTICS_PERIODIC_OUTPUT */
 
 #if defined(CONFIG_NET_STATISTICS_USER_API)
 
-static int net_stats_get(u32_t mgmt_request, struct net_if *iface,
+static int net_stats_get(uint32_t mgmt_request, struct net_if *iface,
 			 void *data, size_t len)
 {
 	size_t len_chk = 0;
 	void *src = NULL;
 
-	ARG_UNUSED(iface);
-
 	switch (NET_MGMT_GET_COMMAND(mgmt_request)) {
 	case NET_REQUEST_STATS_CMD_GET_ALL:
 		len_chk = sizeof(struct net_stats);
+#if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
+		src = iface ? &iface->stats : &net_stats;
+#else
 		src = &net_stats;
+#endif
 		break;
 	case NET_REQUEST_STATS_CMD_GET_PROCESSING_ERROR:
 		len_chk = sizeof(net_stats_t);
-		src = &net_stats.processing_error;
+		src = GET_STAT_ADDR(iface, processing_error);
 		break;
 	case NET_REQUEST_STATS_CMD_GET_BYTES:
 		len_chk = sizeof(struct net_stats_bytes);
-		src = &net_stats.bytes;
+		src = GET_STAT_ADDR(iface, bytes);
 		break;
 	case NET_REQUEST_STATS_CMD_GET_IP_ERRORS:
 		len_chk = sizeof(struct net_stats_ip_errors);
-		src = &net_stats.ip_errors;
+		src = GET_STAT_ADDR(iface, ip_errors);
 		break;
 #if defined(CONFIG_NET_STATISTICS_IPV4)
 	case NET_REQUEST_STATS_CMD_GET_IPV4:
 		len_chk = sizeof(struct net_stats_ip);
-		src = &net_stats.ipv4;
+		src = GET_STAT_ADDR(iface, ipv4);
 		break;
 #endif
 #if defined(CONFIG_NET_STATISTICS_IPV6)
 	case NET_REQUEST_STATS_CMD_GET_IPV6:
 		len_chk = sizeof(struct net_stats_ip);
-		src = &net_stats.ipv6;
+		src = GET_STAT_ADDR(iface, ipv6);
 		break;
 #endif
 #if defined(CONFIG_NET_STATISTICS_IPV6_ND)
 	case NET_REQUEST_STATS_CMD_GET_IPV6_ND:
 		len_chk = sizeof(struct net_stats_ipv6_nd);
-		src = &net_stats.ipv6_nd;
+		src = GET_STAT_ADDR(iface, ipv6_nd);
 		break;
 #endif
 #if defined(CONFIG_NET_STATISTICS_ICMP)
 	case NET_REQUEST_STATS_CMD_GET_ICMP:
 		len_chk = sizeof(struct net_stats_icmp);
-		src = &net_stats.icmp;
+		src = GET_STAT_ADDR(iface, icmp);
 		break;
 #endif
 #if defined(CONFIG_NET_STATISTICS_UDP)
 	case NET_REQUEST_STATS_CMD_GET_UDP:
 		len_chk = sizeof(struct net_stats_udp);
-		src = &net_stats.udp;
+		src = GET_STAT_ADDR(iface, udp);
 		break;
 #endif
 #if defined(CONFIG_NET_STATISTICS_TCP)
 	case NET_REQUEST_STATS_CMD_GET_TCP:
 		len_chk = sizeof(struct net_stats_tcp);
-		src = &net_stats.tcp;
+		src = GET_STAT_ADDR(iface, tcp);
 		break;
 #endif
-#if defined(CONFIG_NET_STATISTICS_RPL)
-	case NET_REQUEST_STATS_CMD_GET_RPL:
-		len_chk = sizeof(struct net_stats_rpl);
-		src = &net_stats.rpl;
+#if defined(CONFIG_NET_STATISTICS_POWER_MANAGEMENT)
+	case NET_REQUEST_STATS_GET_PM:
+		len_chk = sizeof(struct net_stats_pm);
+		src = GET_STAT_ADDR(iface, pm);
 		break;
 #endif
 	}
@@ -241,7 +309,7 @@ static int net_stats_get(u32_t mgmt_request, struct net_if *iface,
 		return -EINVAL;
 	}
 
-	memcpy(src, data, len);
+	memcpy(data, src, len);
 
 	return 0;
 }
@@ -288,9 +356,20 @@ NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_STATS_GET_TCP,
 				  net_stats_get);
 #endif
 
-#if defined(CONFIG_NET_STATISTICS_RPL)
-NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_STATS_GET_RPL,
+#if defined(CONFIG_NET_STATISTICS_POWER_MANAGEMENT)
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_STATS_GET_PM,
 				  net_stats_get);
 #endif
 
 #endif /* CONFIG_NET_STATISTICS_USER_API */
+
+void net_stats_reset(struct net_if *iface)
+{
+	if (iface) {
+		net_if_stats_reset(iface);
+		return;
+	}
+
+	net_if_stats_reset_all();
+	memset(&net_stats, 0, sizeof(net_stats));
+}

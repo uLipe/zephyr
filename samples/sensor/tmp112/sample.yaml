@@ -1,8 +1,13 @@
 sample:
-  description: TBD
-  name: TBD
+  name: TMP112 Sensor Sample
 tests:
-  - test:
-      build_only: true
-      platform_whitelist: frdm_k64f quark_d2000_crb
-      tags: samples
+  sample.sensor.tmp112:
+    harness: console
+    tags: sensors
+    depends_on: i2c
+    filter: dt_compat_enabled("ti,tmp112")
+    harness_config:
+        type: one_line
+        regex:
+            - "temp is (.*)"
+        fixture: fixture_i2c_tmp112

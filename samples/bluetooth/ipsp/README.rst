@@ -12,14 +12,47 @@ you IPv6 connectivity over BLE.
 Building and Running
 ********************
 
-This sample can be found under :file:`samples/bluetooth/ipsp` in the
+This sample can be found under :zephyr_file:`samples/bluetooth/ipsp` in the
 Zephyr tree.
+Sample can be built and executed for the nRF52840 DK NRF52840 as follows:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/ipsp
+   :board: nrf52840dk_nrf52840
+   :goals: build flash
+   :compact:
+
+To build a debug version, with logging and shell support, use the config file
+:file:`prj_dbg.conf`:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/ipsp
+   :board: nrf52840dk_nrf52840
+   :conf: prj_dbg.conf
+   :goals: build flash
+   :compact:
+
+Building and Running for Linux kernels released before 4.12
+===========================================================
+.. note::
+
+   For hosts using kernels released before 4.12,
+   option :option:`CONFIG_NET_L2_BT_ZEP1656`
+   must be selected. For more information, see `Zephyr issue #3111
+   <https://github.com/zephyrproject-rtos/zephyr/issues/3111>`_
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/ipsp
+   :board: nrf52840dk_nrf52840
+   :conf: "prj_zep1656.conf"
+   :goals: build flash
+   :compact:
 
 Testing with a Linux host
 =========================
 
-To test IPSP please take a look at samples/net/README, in addition to running
-echo-client you must enable 6LowPAN module in Linux with the following commands
+Make sure the Linux kernel has been built with Bluetooth 6LoWPAN module
+(CONFIG_BT_6LOWPAN=y) then proceed to enable it with with the following commands
 (as root):
 
 .. code-block:: console
@@ -181,8 +214,3 @@ test both TCP and UDP echo, you can use Zephyr's helper tool in the GitHub
 .. code-block:: console
 
    $ echo-client -i bt0 <ip>
-
-.. note::
-
-   For hosts using kernels released before 4.12 CONFIG_NET_L2_BT_ZEP1656
-   shall be selected: https://jira.zephyrproject.org/browse/ZEP-1656

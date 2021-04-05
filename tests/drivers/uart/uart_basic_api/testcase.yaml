@@ -1,14 +1,20 @@
+common:
+  integration_platforms:
+    - mps2_an385
+
 tests:
-  - test_uart:
-      platform_whitelist: quark_se_c1000_devboard quark_d2000_crb
-      tags: drivers
-  - test_uart_shell:
-      build_only: true
-      extra_args: CONF_FILE=prj_shell.conf
-      platform_whitelist: quark_se_c1000_devboard quark_d2000_crb
-      tags: drivers
-  - test_uart_poll:
-      build_only: true
-      extra_args: CONF_FILE=prj_poll.conf
-      platform_whitelist: qemu_x86
-      tags: drivers
+  drivers.uart:
+    tags: drivers
+    filter: CONFIG_UART_CONSOLE
+    harness: keyboard
+  drivers.uart.poll:
+    extra_args: CONF_FILE=prj_poll.conf
+    tags: drivers
+    filter: CONFIG_UART_CONSOLE
+    harness: keyboard
+  drivers.uart.shell:
+    extra_args: CONF_FILE=prj_shell.conf
+    min_flash: 64
+    tags: drivers
+    filter: CONFIG_UART_CONSOLE
+    harness: keyboard

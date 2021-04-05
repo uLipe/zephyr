@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017 Linaro Limited
+ * Copyright (c) 2018 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,87 +8,64 @@
 #include <errno.h>
 #include <string.h>
 
-#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DEBUG
-#include <logging/sys_log.h>
+#define LOG_LEVEL 4
+#include <logging/log.h>
+LOG_MODULE_REGISTER(main);
 
 #include <zephyr.h>
-#include <led_strip.h>
+#include <drivers/led_strip.h>
 #include <device.h>
-#include <spi.h>
-#include <misc/util.h>
+#include <drivers/spi.h>
+#include <sys/util.h>
 
-/*
- * Number of RGB LEDs in the LED strip, adjust as needed.
- */
-#define STRIP_NUM_LEDS 12
+#define STRIP_LABEL		DT_LABEL(DT_ALIAS(led_strip))
+#define STRIP_NUM_PIXELS	DT_PROP(DT_ALIAS(led_strip), chain_length)
 
-#define SPI_DEV_NAME "ws2812_spi"
-#define STRIP_DEV_NAME CONFIG_WS2812_STRIP_NAME
-#define DELAY_TIME K_MSEC(40)
+#define DELAY_TIME K_MSEC(50)
+
+#define RGB(_r, _g, _b) { .r = (_r), .g = (_g), .b = (_b) }
 
 static const struct led_rgb colors[] = {
-	{ .r = 0xff, .g = 0x00, .b = 0x00, }, /* red */
-	{ .r = 0x00, .g = 0xff, .b = 0x00, }, /* green */
-	{ .r = 0x00, .g = 0x00, .b = 0xff, }, /* blue */
+	RGB(0x0f, 0x00, 0x00), /* red */
+	RGB(0x00, 0x0f, 0x00), /* green */
+	RGB(0x00, 0x00, 0x0f), /* blue */
 };
 
-static const struct led_rgb black = {
-	.r = 0x00,
-	.g = 0x00,
-	.b = 0x00,
-};
-
-struct led_rgb strip_colors[STRIP_NUM_LEDS];
-
-const struct led_rgb *color_at(size_t time, size_t i)
-{
-	size_t rgb_start = time % STRIP_NUM_LEDS;
-
-	if (rgb_start <= i && i < rgb_start + ARRAY_SIZE(colors)) {
-		return &colors[i - rgb_start];
-	} else {
-		return &black;
-	}
-}
+struct led_rgb pixels[STRIP_NUM_PIXELS];
 
 void main(void)
 {
-	struct device *spi, *strip;
-	size_t i, time;
+	const struct device *strip;
+	size_t cursor = 0, color = 0;
+	int rc;
 
-	/* Double-check the configuration. */
-	spi = device_get_binding(SPI_DEV_NAME);
-	if (spi) {
-		SYS_LOG_INF("Found SPI device %s", SPI_DEV_NAME);
-	} else {
-		SYS_LOG_ERR("SPI device not found; you must choose a SPI "
-			    "device and configure its name to %s",
-			    SPI_DEV_NAME);
-		return;
-	}
-	strip = device_get_binding(STRIP_DEV_NAME);
+	strip = device_get_binding(STRIP_LABEL);
 	if (strip) {
-		SYS_LOG_INF("Found LED strip device %s", STRIP_DEV_NAME);
+		LOG_INF("Found LED strip device %s", STRIP_LABEL);
 	} else {
-		SYS_LOG_ERR("LED strip device %s not found", STRIP_DEV_NAME);
+		LOG_ERR("LED strip device %s not found", STRIP_LABEL);
 		return;
 	}
 
-	/*
-	 * Display a pattern that "walks" the three primary colors
-	 * down the strip until it reaches the end, then starts at the
-	 * beginning. This has the effect of moving it around in a
-	 * circle in the case of rings of pixels.
-	 */
-	SYS_LOG_INF("Displaying pattern on strip");
-	time = 0;
+	LOG_INF("Displaying pattern on strip");
 	while (1) {
-		for (i = 0; i < STRIP_NUM_LEDS; i++) {
-			memcpy(&strip_colors[i], color_at(time, i),
-			       sizeof(strip_colors[i]));
+		memset(&pixels, 0x00, sizeof(pixels));
+		memcpy(&pixels[cursor], &colors[color], sizeof(struct led_rgb));
+		rc = led_strip_update_rgb(strip, pixels, STRIP_NUM_PIXELS);
+
+		if (rc) {
+			LOG_ERR("couldn't update strip: %d", rc);
 		}
-		led_strip_update_rgb(strip, strip_colors, STRIP_NUM_LEDS);
+
+		cursor++;
+		if (cursor >= STRIP_NUM_PIXELS) {
+			cursor = 0;
+			color++;
+			if (color == ARRAY_SIZE(colors)) {
+				color = 0;
+			}
+		}
+
 		k_sleep(DELAY_TIME);
-		time++;
 	}
 }

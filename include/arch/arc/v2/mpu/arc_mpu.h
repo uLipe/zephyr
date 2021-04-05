@@ -3,41 +3,54 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef _ARC_MPU_H_
-#define _ARC_MPU_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARC_V2_MPU_ARC_MPU_H_
+#define ZEPHYR_INCLUDE_ARCH_ARC_V2_MPU_ARC_MPU_H_
 
 
 
-#define AUX_MPU_RDP_UE  0x008    /* allow user execution */
-#define AUX_MPU_RDP_UW  0x010    /* allow user write */
-#define AUX_MPU_RDP_UR  0x020    /* allow user read */
-#define AUX_MPU_RDP_KE  0x040    /* only allow kernel execution */
-#define AUX_MPU_RDP_KW  0x080    /* only allow kernel write */
-#define AUX_MPU_RDP_KR  0x100    /* only allow kernel read */
+#define AUX_MPU_ATTR_UE  0x008    /* allow user execution */
+#define AUX_MPU_ATTR_UW  0x010    /* allow user write */
+#define AUX_MPU_ATTR_UR  0x020    /* allow user read */
+#define AUX_MPU_ATTR_KE  0x040    /* only allow kernel execution */
+#define AUX_MPU_ATTR_KW  0x080    /* only allow kernel write */
+#define AUX_MPU_ATTR_KR  0x100    /* only allow kernel read */
+#define AUX_MPU_ATTR_S   0x8000   /* secure */
+#define AUX_MPU_ATTR_N   0x0000   /* normal */
 
+
+/*
+ * a region is dynamic means it can be split into sub regions.
+ * This attribute is meaningful for ARC MPUv3 which does not support mpu
+ * entry overlap. For ARC MPUv2, this attribute will be ignored as it
+ * supports mpu overlap in hardware.
+ */
+#define REGION_DYNAMIC  0x800  /* dynamic flag */
 
 
 /* Some helper defines for common regions */
-#define REGION_RAM_ATTR(size) \
-			(AUX_MPU_RDP_UW | AUX_MPU_RDP_UR | \
-			 AUX_MPU_RDP_KW | AUX_MPU_RDP_KR | \
-			 size)
 
-#define REGION_FLASH_ATTR(size) \
-			(AUX_MPU_RDP_UE | AUX_MPU_RDP_UR | \
-			 AUX_MPU_RDP_KE | AUX_MPU_RDP_KR | \
-			 size)
+#define REGION_KERNEL_RAM_ATTR \
+			(AUX_MPU_ATTR_KW | AUX_MPU_ATTR_KR)
 
-#define REGION_IO_ATTR(size) \
-			(AUX_MPU_RDP_UW | AUX_MPU_RDP_UR | \
-			 AUX_MPU_RDP_KW | AUX_MPU_RDP_KR | \
-			 size)
+#define REGION_KERNEL_ROM_ATTR \
+			(AUX_MPU_ATTR_KE | AUX_MPU_ATTR_KR)
 
-#define REGION_ALL_ATTR(size) \
-			(AUX_MPU_RDP_UW | AUX_MPU_RDP_UR | \
-			 AUX_MPU_RDP_KW | AUX_MPU_RDP_KR | \
-			 AUX_MPU_RDP_KE | AUX_MPU_RDP_UE | \
-			 size)
+#define REGION_RAM_ATTR	\
+			(AUX_MPU_ATTR_UW | AUX_MPU_ATTR_UR | \
+			 AUX_MPU_ATTR_KW | AUX_MPU_ATTR_KR)
+
+#define REGION_ROM_ATTR \
+			(AUX_MPU_ATTR_UE | AUX_MPU_ATTR_UR | \
+			 AUX_MPU_ATTR_KE | AUX_MPU_ATTR_KR)
+
+#define REGION_IO_ATTR \
+			(AUX_MPU_ATTR_UW | AUX_MPU_ATTR_UR | \
+			 AUX_MPU_ATTR_KW | AUX_MPU_ATTR_KR)
+
+#define REGION_ALL_ATTR \
+			(AUX_MPU_ATTR_UW | AUX_MPU_ATTR_UR | \
+			 AUX_MPU_ATTR_KW | AUX_MPU_ATTR_KR | \
+			 AUX_MPU_ATTR_KE | AUX_MPU_ATTR_UE)
 
 
 #define REGION_32B      0x200
@@ -71,25 +84,27 @@
 
 /* Region definition data structure */
 struct arc_mpu_region {
-	/* Region Base Address */
-	u32_t base;
 	/* Region Name */
 	const char *name;
+	/* Region Base Address */
+	uint32_t base;
+	uint32_t size;
 	/* Region Attributes */
-	u32_t attr;
+	uint32_t attr;
 };
 
-#define MPU_REGION_ENTRY(_name, _base, _attr) \
+#define MPU_REGION_ENTRY(_name, _base, _size, _attr) \
 	{\
 		.name = _name, \
 		.base = _base, \
+		.size = _size, \
 		.attr = _attr, \
 	}
 
 /* MPU configuration data structure */
 struct arc_mpu_config {
 	/* Number of regions */
-	u32_t num_regions;
+	uint32_t num_regions;
 	/* Regions */
 	struct arc_mpu_region *mpu_regions;
 };

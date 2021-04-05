@@ -6,18 +6,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <logging/log.h>
+LOG_MODULE_REGISTER(net_test, CONFIG_NET_CONTEXT_LOG_LEVEL);
+
 #include <zephyr/types.h>
 #include <ztest.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 #include <linker/sections.h>
+#include <random/rand32.h>
 
 #include <tc_util.h>
 
 #include <net/ethernet.h>
+#include <net/dummy.h>
 #include <net/buf.h>
 #include <net/net_ip.h>
 #include <net/net_if.h>
@@ -26,7 +31,7 @@
 
 #include "net_private.h"
 
-#if defined(CONFIG_NET_DEBUG_CONTEXT)
+#if defined(CONFIG_NET_CONTEXT_LOG_LEVEL_DBG)
 #define DBG(fmt, ...) printk(fmt, ##__VA_ARGS__)
 #else
 #define DBG(fmt, ...)
@@ -57,17 +62,17 @@ static bool data_failure;
 static bool recv_cb_called;
 static bool recv_cb_reconfig_called;
 static bool recv_cb_timeout_called;
-static int test_token, timeout_token;
+static bool test_sending;
 
 static struct k_sem wait_data;
 
-#define WAIT_TIME 250
+#define WAIT_TIME K_MSEC(250)
 #define WAIT_TIME_LONG MSEC_PER_SEC
 #define SENDING 93244
 #define MY_PORT 1969
 #define PEER_PORT 16233
 
-static void net_ctx_get_fail(void)
+static void test_net_ctx_get_fail(void)
 {
 	struct net_context *context;
 	int ret;
@@ -84,7 +89,7 @@ static void net_ctx_get_fail(void)
 	zassert_equal(ret, -EPROTONOSUPPORT,
 		      "Invalid context protocol test failed");
 
-	ret = net_context_get(1, SOCK_DGRAM, IPPROTO_UDP, &context);
+	ret = net_context_get(99, SOCK_DGRAM, IPPROTO_UDP, &context);
 	zassert_equal(ret, -EAFNOSUPPORT,
 		      "Invalid context family test failed");
 
@@ -101,7 +106,7 @@ static void net_ctx_get_fail(void)
 		      "Invalid context value test failed ");
 }
 
-static void net_ctx_get_success(void)
+static void test_net_ctx_get_success(void)
 {
 	struct net_context *context = NULL;
 	int ret;
@@ -119,7 +124,7 @@ static void net_ctx_get_success(void)
 		      "Context put check test failed");
 }
 
-static void net_ctx_get_all(void)
+static void test_net_ctx_get_all(void)
 {
 	struct net_context *contexts[CONFIG_NET_MAX_CONTEXTS];
 	struct net_context *context;
@@ -143,7 +148,7 @@ static void net_ctx_get_all(void)
 	}
 }
 
-static void net_ctx_create(void)
+static void test_net_ctx_create(void)
 {
 	int ret;
 
@@ -175,7 +180,7 @@ static void net_ctx_create(void)
 #endif /* CONFIG_NET_TCP */
 }
 
-static void net_ctx_bind_fail(void)
+static void test_net_ctx_bind_fail(void)
 {
 	struct sockaddr_in6 addr = {
 		.sin6_family = AF_INET6,
@@ -191,7 +196,7 @@ static void net_ctx_bind_fail(void)
 		      "Context bind failure test failed");
 }
 
-static void net_ctx_bind_uni_success_v6(void)
+static void test_net_ctx_bind_uni_success_v6(void)
 {
 	struct sockaddr_in6 addr = {
 		.sin6_family = AF_INET6,
@@ -207,7 +212,7 @@ static void net_ctx_bind_uni_success_v6(void)
 		      "Context bind IPv6 test failed");
 }
 
-static void net_ctx_bind_uni_success_v4(void)
+static void test_net_ctx_bind_uni_success_v4(void)
 {
 	struct sockaddr_in addr = {
 		.sin_family = AF_INET,
@@ -222,7 +227,7 @@ static void net_ctx_bind_uni_success_v4(void)
 		      "Context bind IPv4 test failed");
 }
 
-static void net_ctx_bind_mcast_success(void)
+static void test_net_ctx_bind_mcast_success(void)
 {
 	int ret;
 	struct sockaddr_in6 addr = {
@@ -239,7 +244,7 @@ static void net_ctx_bind_mcast_success(void)
 		      "Context bind test failed ");
 }
 
-static void net_ctx_listen_v6(void)
+static void test_net_ctx_listen_v6(void)
 {
 	zassert_true(net_context_listen(udp_v6_ctx, 0),
 		     "Context listen IPv6 UDP test failed");
@@ -250,7 +255,7 @@ static void net_ctx_listen_v6(void)
 #endif /* CONFIG_NET_TCP */
 }
 
-static void net_ctx_listen_v4(void)
+static void test_net_ctx_listen_v4(void)
 {
 	zassert_true(net_context_listen(udp_v4_ctx, 0),
 		     "Context listen IPv4 UDP test failed ");
@@ -276,7 +281,7 @@ static void connect_cb(struct net_context *context, int status,
 	cb_failure = false;
 }
 
-static void net_ctx_connect_v6(void)
+static void test_net_ctx_connect_v6(void)
 {
 	struct sockaddr_in6 addr = {
 		.sin6_family = AF_INET6,
@@ -287,21 +292,22 @@ static void net_ctx_connect_v6(void)
 	int ret;
 
 	ret = net_context_connect(udp_v6_ctx, (struct sockaddr *)&addr,
-				  sizeof(struct sockaddr_in6),
-				  connect_cb, 0, INT_TO_POINTER(AF_INET6));
+				  sizeof(struct sockaddr_in6), connect_cb,
+				  K_NO_WAIT, INT_TO_POINTER(AF_INET6));
 	zassert_false((ret || cb_failure),
 		      "Context connect IPv6 UDP test failed");
 
 #if defined(CONFIG_NET_TCP)
-	ret = net_context_listen(tcp_v6_ctx, (struct sockaddr *)&addr,
-				 connect_cb, 0, INT_TO_POINTER(AF_INET6));
+	ret = net_context_connect(tcp_v6_ctx, (struct sockaddr *)&addr,
+				  sizeof(struct sockaddr_in6), connect_cb,
+				  K_NO_WAIT, INT_TO_POINTER(AF_INET6));
 	zassert_false((ret || cb_failure),
 		      "Context connect IPv6 TCP test failed");
 
 #endif /* CONFIG_NET_TCP */
 }
 
-static void net_ctx_connect_v4(void)
+static void test_net_ctx_connect_v4(void)
 {
 	struct sockaddr_in addr = {
 		.sin_family = AF_INET,
@@ -311,14 +317,15 @@ static void net_ctx_connect_v4(void)
 	int ret;
 
 	ret = net_context_connect(udp_v4_ctx, (struct sockaddr *)&addr,
-				  sizeof(struct sockaddr_in),
-				  connect_cb, 0, INT_TO_POINTER(AF_INET));
+				  sizeof(struct sockaddr_in), connect_cb,
+				  K_NO_WAIT, INT_TO_POINTER(AF_INET));
 	zassert_false((ret || cb_failure),
 		      "Context connect IPv6 UDP test failed");
 
 #if defined(CONFIG_NET_TCP)
-	ret = net_context_listen(tcp_v4_ctx, (struct sockaddr *)&addr,
-				 connect_cb, 0, INT_TO_POINTER(AF_INET));
+	ret = net_context_connect(tcp_v4_ctx, (struct sockaddr *)&addr,
+				  sizeof(struct sockaddr_in6), connect_cb,
+				  K_NO_WAIT, INT_TO_POINTER(AF_INET));
 	zassert_false((ret || cb_failure),
 		      "Context connect IPv6 TCP test failed");
 #endif /* CONFIG_NET_TCP */
@@ -342,7 +349,7 @@ static void accept_cb(struct net_context *context,
 	cb_failure = false;
 }
 
-static void net_ctx_accept_v6(void)
+static void test_net_ctx_accept_v6(void)
 {
 	int ret;
 
@@ -352,7 +359,7 @@ static void net_ctx_accept_v6(void)
 		      "Context accept IPv6 UDP test failed");
 }
 
-static void net_ctx_accept_v4(void)
+static void test_net_ctx_accept_v4(void)
 {
 	int ret;
 
@@ -362,8 +369,7 @@ static void net_ctx_accept_v4(void)
 		      "Context accept IPv4 UDP test failed");
 }
 
-static void send_cb(struct net_context *context, int status,
-		    void *token, void *user_data)
+static void send_cb(struct net_context *context, int status, void *user_data)
 {
 	sa_family_t family = POINTER_TO_INT(user_data);
 
@@ -374,72 +380,40 @@ static void send_cb(struct net_context *context, int status,
 		return;
 	}
 
-	if (POINTER_TO_INT(token) != test_token) {
-		TC_ERROR("Token mismatch %d should be %d\n",
-		       POINTER_TO_INT(token), test_token);
-		cb_failure = true;
-		return;
-	}
-
 	cb_failure = false;
-	test_token = 0;
 }
 
-static void net_ctx_send_v6(void)
+static void test_net_ctx_send_v6(void)
 {
-	int ret, len;
-	struct net_pkt *pkt;
-	struct net_buf  *frag;
+	int ret;
 
-	pkt = net_pkt_get_tx(udp_v6_ctx, K_FOREVER);
-	frag = net_pkt_get_data(udp_v6_ctx, K_FOREVER);
+	test_sending = true;
 
-	net_pkt_frag_add(pkt, frag);
+	ret = net_context_send(udp_v6_ctx, test_data, strlen(test_data),
+			       send_cb, K_FOREVER, INT_TO_POINTER(AF_INET6));
+	k_yield();
 
-	len = strlen(test_data);
-
-	memcpy(net_buf_add(frag, len), test_data, len);
-
-	net_pkt_set_appdatalen(pkt, len);
-
-	test_token = SENDING;
-
-	ret = net_context_send(pkt, send_cb, 0, INT_TO_POINTER(test_token),
-			       INT_TO_POINTER(AF_INET6));
-	zassert_false((ret || cb_failure),
+	zassert_false(((ret < 0) || cb_failure),
 		     "Context send IPv6 UDP test failed");
 }
 
-static void net_ctx_send_v4(void)
+static void test_net_ctx_send_v4(void)
 {
-	int ret, len;
-	struct net_pkt *pkt;
-	struct net_buf  *frag;
+	int ret;
 
-	pkt = net_pkt_get_tx(udp_v4_ctx, K_FOREVER);
-	frag = net_pkt_get_data(udp_v4_ctx, K_FOREVER);
+	test_sending = true;
 
-	net_pkt_frag_add(pkt, frag);
+	ret = net_context_send(udp_v4_ctx, test_data, strlen(test_data),
+			       send_cb, K_FOREVER, INT_TO_POINTER(AF_INET));
+	k_yield();
 
-	len = strlen(test_data);
-
-	memcpy(net_buf_add(frag, len), test_data, len);
-
-	net_pkt_set_appdatalen(pkt, len);
-
-	test_token = SENDING;
-
-	ret = net_context_send(pkt, send_cb, 0, INT_TO_POINTER(test_token),
-			       INT_TO_POINTER(AF_INET));
-	zassert_false((ret || cb_failure),
+	zassert_false(((ret < 0) || cb_failure),
 		      "Context send IPv4 UDP test failed");
 }
 
-static void net_ctx_sendto_v6(void)
+static void test_net_ctx_sendto_v6(void)
 {
-	int ret, len;
-	struct net_pkt *pkt;
-	struct net_buf  *frag;
+	int ret;
 	struct sockaddr_in6 addr = {
 		.sin6_family = AF_INET6,
 		.sin6_port = htons(PEER_PORT),
@@ -447,63 +421,39 @@ static void net_ctx_sendto_v6(void)
 				   0, 0, 0, 0, 0, 0, 0, 0x2 } } },
 	};
 
-	pkt = net_pkt_get_tx(udp_v6_ctx, K_FOREVER);
-	frag = net_pkt_get_data(udp_v6_ctx, K_FOREVER);
+	test_sending = true;
 
-	net_pkt_frag_add(pkt, frag);
-
-	len = strlen(test_data);
-
-	memcpy(net_buf_add(frag, len), test_data, len);
-
-	net_pkt_set_appdatalen(pkt, len);
-
-	test_token = SENDING;
-
-	ret = net_context_sendto(pkt, (struct sockaddr *)&addr,
-				 sizeof(struct sockaddr_in6),
-				 send_cb, 0,
-				 INT_TO_POINTER(test_token),
-				 INT_TO_POINTER(AF_INET6));
-	zassert_false((ret || cb_failure),
+	ret = net_context_sendto(udp_v6_ctx, test_data, strlen(test_data),
+				 (struct sockaddr *)&addr,
+				 sizeof(struct sockaddr_in6), send_cb,
+				 K_NO_WAIT, INT_TO_POINTER(AF_INET6));
+	zassert_false(((ret < 0) || cb_failure),
 		      "Context send IPv6 UDP test failed");
 }
 
-static void net_ctx_sendto_v4(void)
+static void test_net_ctx_sendto_v4(void)
 {
-	int ret, len;
-	struct net_pkt *pkt;
-	struct net_buf  *frag;
+	int ret;
 	struct sockaddr_in addr = {
 		.sin_family = AF_INET,
 		.sin_port = htons(PEER_PORT),
 		.sin_addr = { { { 192, 0, 2, 2 } } },
 	};
 
-	pkt = net_pkt_get_tx(udp_v4_ctx, K_FOREVER);
-	frag = net_pkt_get_data(udp_v4_ctx, K_FOREVER);
+	test_sending = true;
 
-	net_pkt_frag_add(pkt, frag);
-
-	len = strlen(test_data);
-
-	memcpy(net_buf_add(frag, len), test_data, len);
-
-	net_pkt_set_appdatalen(pkt, len);
-
-	test_token = SENDING;
-
-	ret = net_context_sendto(pkt, (struct sockaddr *)&addr,
-				 sizeof(struct sockaddr_in),
-				 send_cb, 0,
-				 INT_TO_POINTER(test_token),
-				 INT_TO_POINTER(AF_INET));
-	zassert_false((ret || cb_failure),
+	ret = net_context_sendto(udp_v4_ctx, test_data, strlen(test_data),
+				 (struct sockaddr *)&addr,
+				 sizeof(struct sockaddr_in), send_cb,
+				 K_NO_WAIT, INT_TO_POINTER(AF_INET));
+	zassert_false(((ret < 0) || cb_failure),
 		      "Context send IPv4 UDP test failed");
 }
 
 static void recv_cb(struct net_context *context,
 		    struct net_pkt *pkt,
+		    union net_ip_header *ip_hdr,
+		    union net_proto_header *proto_hdr,
 		    int status,
 		    void *user_data)
 {
@@ -513,16 +463,16 @@ static void recv_cb(struct net_context *context,
 	k_sem_give(&wait_data);
 }
 
-static void net_ctx_recv_v6(void)
+static void test_net_ctx_recv_v6(void)
 {
 	int ret;
 
-	ret = net_context_recv(udp_v6_ctx, recv_cb, 0,
+	ret = net_context_recv(udp_v6_ctx, recv_cb, K_NO_WAIT,
 			       INT_TO_POINTER(AF_INET6));
 	zassert_false((ret || cb_failure),
 		      "Context recv IPv6 UDP test failed");
 
-	net_ctx_sendto_v6();
+	test_net_ctx_sendto_v6();
 
 	k_sem_take(&wait_data, WAIT_TIME);
 
@@ -531,16 +481,16 @@ static void net_ctx_recv_v6(void)
 	recv_cb_called = false;
 }
 
-static void net_ctx_recv_v4(void)
+static void test_net_ctx_recv_v4(void)
 {
 	int ret;
 
-	ret = net_context_recv(udp_v4_ctx, recv_cb, 0,
+	ret = net_context_recv(udp_v4_ctx, recv_cb, K_NO_WAIT,
 			       INT_TO_POINTER(AF_INET));
 	zassert_false((ret || cb_failure),
 		      "Context recv IPv4 UDP test failed");
 
-	net_ctx_sendto_v4();
+	test_net_ctx_sendto_v4();
 
 	k_sem_take(&wait_data, WAIT_TIME);
 
@@ -552,9 +502,7 @@ static void net_ctx_recv_v4(void)
 
 static bool net_ctx_sendto_v6_wrong_src(void)
 {
-	int ret, len;
-	struct net_pkt *pkt;
-	struct net_buf  *frag;
+	int ret;
 	struct sockaddr_in6 addr = {
 		.sin6_family = AF_INET6,
 		.sin6_port = htons(PEER_PORT),
@@ -562,25 +510,13 @@ static bool net_ctx_sendto_v6_wrong_src(void)
 				   0, 0, 0, 0, 0, 0, 0, 0x3 } } },
 	};
 
-	pkt = net_pkt_get_tx(udp_v6_ctx, K_FOREVER);
-	frag = net_pkt_get_data(udp_v6_ctx, K_FOREVER);
+	test_sending = true;
 
-	net_pkt_frag_add(pkt, frag);
-
-	len = strlen(test_data);
-
-	memcpy(net_buf_add(frag, len), test_data, len);
-
-	net_pkt_set_appdatalen(pkt, len);
-
-	test_token = SENDING;
-
-	ret = net_context_sendto(pkt, (struct sockaddr *)&addr,
-				 sizeof(struct sockaddr_in6),
-				 send_cb, 0,
-				 INT_TO_POINTER(test_token),
-				 INT_TO_POINTER(AF_INET6));
-	if (ret || cb_failure) {
+	ret = net_context_sendto(udp_v6_ctx, test_data, strlen(test_data),
+				 (struct sockaddr *)&addr,
+				 sizeof(struct sockaddr_in6), send_cb,
+				 K_NO_WAIT, INT_TO_POINTER(AF_INET6));
+	if ((ret < 0) || cb_failure) {
 		TC_ERROR("Context sendto IPv6 UDP wrong src "
 			 "test failed (%d)\n", ret);
 		return false;
@@ -589,7 +525,7 @@ static bool net_ctx_sendto_v6_wrong_src(void)
 	return true;
 }
 
-static void net_ctx_recv_v6_fail(void)
+static void test_net_ctx_recv_v6_fail(void)
 {
 	net_ctx_sendto_v6_wrong_src();
 
@@ -604,34 +540,20 @@ static void net_ctx_recv_v6_fail(void)
 
 static bool net_ctx_sendto_v4_wrong_src(void)
 {
-	int ret, len;
-	struct net_pkt *pkt;
-	struct net_buf *frag;
+	int ret;
 	struct sockaddr_in addr = {
 		.sin_family = AF_INET,
 		.sin_port = htons(PEER_PORT),
 		.sin_addr = { { { 192, 0, 2, 3 } } },
 	};
 
-	pkt = net_pkt_get_tx(udp_v4_ctx, K_FOREVER);
-	frag = net_pkt_get_data(udp_v4_ctx, K_FOREVER);
+	test_sending = true;
 
-	net_pkt_frag_add(pkt, frag);
-
-	len = strlen(test_data);
-
-	memcpy(net_buf_add(frag, len), test_data, len);
-
-	net_pkt_set_appdatalen(pkt, len);
-
-	test_token = SENDING;
-
-	ret = net_context_sendto(pkt, (struct sockaddr *)&addr,
-				 sizeof(struct sockaddr_in),
-				 send_cb, 0,
-				 INT_TO_POINTER(test_token),
-				 INT_TO_POINTER(AF_INET));
-	if (ret || cb_failure) {
+	ret = net_context_sendto(udp_v4_ctx, test_data, strlen(test_data),
+				 (struct sockaddr *)&addr,
+				 sizeof(struct sockaddr_in), send_cb,
+				 K_NO_WAIT, INT_TO_POINTER(AF_INET));
+	if ((ret < 0) || cb_failure) {
 		TC_ERROR("Context send IPv4 UDP test failed (%d)\n", ret);
 		return false;
 	}
@@ -639,7 +561,7 @@ static bool net_ctx_sendto_v4_wrong_src(void)
 	return true;
 }
 
-static void net_ctx_recv_v4_fail(void)
+static void test_net_ctx_recv_v4_fail(void)
 {
 	net_ctx_sendto_v4_wrong_src();
 
@@ -652,9 +574,9 @@ static void net_ctx_recv_v4_fail(void)
 	recv_cb_called = false;
 }
 
-static void net_ctx_recv_v6_again(void)
+static void test_net_ctx_recv_v6_again(void)
 {
-	net_ctx_sendto_v6();
+	test_net_ctx_sendto_v6();
 
 	k_sem_take(&wait_data, WAIT_TIME);
 
@@ -664,9 +586,9 @@ static void net_ctx_recv_v6_again(void)
 	recv_cb_called = false;
 }
 
-static void net_ctx_recv_v4_again(void)
+static void test_net_ctx_recv_v4_again(void)
 {
-	net_ctx_sendto_v4();
+	test_net_ctx_sendto_v4();
 
 	k_sem_take(&wait_data, WAIT_TIME);
 
@@ -679,6 +601,8 @@ static void net_ctx_recv_v4_again(void)
 
 static void recv_cb_another(struct net_context *context,
 			    struct net_pkt *pkt,
+			    union net_ip_header *ip_hdr,
+			    union net_proto_header *proto_hdr,
 			    int status,
 			    void *user_data)
 {
@@ -688,16 +612,16 @@ static void recv_cb_another(struct net_context *context,
 	k_sem_give(&wait_data);
 }
 
-static void net_ctx_recv_v6_reconfig(void)
+static void test_net_ctx_recv_v6_reconfig(void)
 {
 	int ret;
 
-	ret = net_context_recv(udp_v6_ctx, recv_cb_another, 0,
+	ret = net_context_recv(udp_v6_ctx, recv_cb_another, K_NO_WAIT,
 			       INT_TO_POINTER(AF_INET6));
 	zassert_false((ret || cb_failure),
 		      "Context recv reconfig IPv6 UDP test failed");
 
-	net_ctx_sendto_v6();
+	test_net_ctx_sendto_v6();
 
 	k_sem_take(&wait_data, WAIT_TIME);
 
@@ -708,17 +632,17 @@ static void net_ctx_recv_v6_reconfig(void)
 	recv_cb_reconfig_called = false;
 }
 
-static void net_ctx_recv_v4_reconfig(void)
+static void test_net_ctx_recv_v4_reconfig(void)
 {
 	int ret;
 
-	ret = net_context_recv(udp_v4_ctx, recv_cb_another, 0,
+	ret = net_context_recv(udp_v4_ctx, recv_cb_another, K_NO_WAIT,
 			       INT_TO_POINTER(AF_INET));
 	zassert_false((ret || cb_failure),
 		      "Context recv reconfig IPv4 UDP test failed");
 
 
-	net_ctx_sendto_v4();
+	test_net_ctx_sendto_v4();
 
 	k_sem_take(&wait_data, WAIT_TIME);
 
@@ -734,6 +658,8 @@ static struct k_thread thread_data;
 
 static void recv_cb_timeout(struct net_context *context,
 			    struct net_pkt *pkt,
+			    union net_ip_header *ip_hdr,
+			    union net_proto_header *proto_hdr,
 			    int status,
 			    void *user_data)
 {
@@ -750,10 +676,10 @@ static void recv_cb_timeout(struct net_context *context,
 void timeout_thread(struct net_context *ctx, void *param2, void *param3)
 {
 	int family = POINTER_TO_INT(param2);
-	s32_t timeout = POINTER_TO_INT(param3);
+	int32_t timeout = POINTER_TO_INT(param3);
 	int ret;
 
-	ret = net_context_recv(ctx, recv_cb_timeout, timeout,
+	ret = net_context_recv(ctx, recv_cb_timeout, K_MSEC(timeout),
 			       INT_TO_POINTER(family));
 	if (ret != -ETIMEDOUT && expecting_cb_failure) {
 		zassert_true(expecting_cb_failure,
@@ -762,7 +688,7 @@ void timeout_thread(struct net_context *ctx, void *param2, void *param3)
 		return;
 	}
 
-	if (recv_cb_timeout_called) {
+	if (!recv_cb_timeout_called) {
 		DBG("Data received on time, recv test failed\n");
 		cb_failure = true;
 		return;
@@ -773,25 +699,25 @@ void timeout_thread(struct net_context *ctx, void *param2, void *param3)
 	k_sem_give(&wait_data);
 }
 
-static k_tid_t start_timeout_v6_thread(s32_t timeout)
+static k_tid_t start_timeout_v6_thread(int32_t timeout)
 {
 	return k_thread_create(&thread_data, thread_stack, STACKSIZE,
 			       (k_thread_entry_t)timeout_thread,
 			       udp_v6_ctx, INT_TO_POINTER(AF_INET6),
 			       INT_TO_POINTER(timeout),
-			       K_PRIO_COOP(7), 0, 0);
+			       K_PRIO_COOP(7), 0, K_NO_WAIT);
 }
 
-static k_tid_t start_timeout_v4_thread(s32_t timeout)
+static k_tid_t start_timeout_v4_thread(int32_t timeout)
 {
 	return k_thread_create(&thread_data, thread_stack, STACKSIZE,
 			       (k_thread_entry_t)timeout_thread,
 			       udp_v4_ctx, INT_TO_POINTER(AF_INET),
 			       INT_TO_POINTER(timeout),
-			       K_PRIO_COOP(7), 0, 0);
+			       K_PRIO_COOP(7), 0, K_NO_WAIT);
 }
 
-static void net_ctx_recv_v6_timeout(void)
+static void test_net_ctx_recv_v6_timeout(void)
 {
 	k_tid_t tid;
 
@@ -803,10 +729,9 @@ static void net_ctx_recv_v6_timeout(void)
 	tid = start_timeout_v6_thread(WAIT_TIME_LONG);
 
 	k_sem_reset(&wait_data);
-	k_sem_take(&wait_data, WAIT_TIME_LONG * 2);
+	k_sem_take(&wait_data, K_MSEC(WAIT_TIME_LONG * 2));
 
-	net_ctx_send_v6();
-	timeout_token = SENDING;
+	test_net_ctx_send_v6();
 
 	DBG("Sent data\n");
 
@@ -820,7 +745,7 @@ static void net_ctx_recv_v6_timeout(void)
 	zassert_true(!cb_failure, NULL);
 }
 
-static void net_ctx_recv_v4_timeout(void)
+static void test_net_ctx_recv_v4_timeout(void)
 {
 	k_tid_t tid;
 
@@ -832,10 +757,9 @@ static void net_ctx_recv_v4_timeout(void)
 	tid = start_timeout_v4_thread(WAIT_TIME_LONG);
 
 	k_sem_reset(&wait_data);
-	k_sem_take(&wait_data, WAIT_TIME_LONG * 2);
+	k_sem_take(&wait_data, K_MSEC(WAIT_TIME_LONG * 2));
 
-	net_ctx_send_v4();
-	timeout_token = SENDING;
+	test_net_ctx_send_v4();
 
 	DBG("Sent data\n");
 
@@ -849,7 +773,7 @@ static void net_ctx_recv_v4_timeout(void)
 	zassert_true(!cb_failure, NULL);
 }
 
-static void net_ctx_recv_v6_timeout_forever(void)
+static void test_net_ctx_recv_v6_timeout_forever(void)
 {
 	k_tid_t tid;
 
@@ -858,13 +782,12 @@ static void net_ctx_recv_v6_timeout_forever(void)
 	recv_cb_timeout_called = false;
 
 	/* Start a thread that will send data to receiver. */
-	tid = start_timeout_v6_thread(K_FOREVER);
+	tid = start_timeout_v6_thread(SYS_FOREVER_MS);
 
 	/* Wait a bit so that we see if recv waited or not */
 	k_sleep(WAIT_TIME);
 
-	net_ctx_send_v6();
-	timeout_token = SENDING;
+	test_net_ctx_send_v6();
 
 	DBG("Sent data\n");
 
@@ -876,7 +799,7 @@ static void net_ctx_recv_v6_timeout_forever(void)
 	recv_cb_timeout_called = false;
 }
 
-static void net_ctx_recv_v4_timeout_forever(void)
+static void test_net_ctx_recv_v4_timeout_forever(void)
 {
 	k_tid_t tid;
 
@@ -885,13 +808,12 @@ static void net_ctx_recv_v4_timeout_forever(void)
 	recv_cb_timeout_called = false;
 
 	/* Start a thread that will send data to receiver. */
-	tid = start_timeout_v4_thread(K_FOREVER);
+	tid = start_timeout_v4_thread(SYS_FOREVER_MS);
 
 	/* Wait a bit so that we see if recv waited or not */
 	k_sleep(WAIT_TIME);
 
-	net_ctx_send_v4();
-	timeout_token = SENDING;
+	test_net_ctx_send_v4();
 
 	DBG("Sent data\n");
 
@@ -903,7 +825,7 @@ static void net_ctx_recv_v4_timeout_forever(void)
 	recv_cb_timeout_called = false;
 }
 
-static void net_ctx_put(void)
+static void test_net_ctx_put(void)
 {
 	int ret;
 
@@ -931,18 +853,18 @@ static void net_ctx_put(void)
 }
 
 struct net_context_test {
-	u8_t mac_addr[sizeof(struct net_eth_addr)];
+	uint8_t mac_addr[sizeof(struct net_eth_addr)];
 	struct net_linkaddr ll_addr;
 };
 
-int net_context_dev_init(struct device *dev)
+int net_context_dev_init(const struct device *dev)
 {
 	return 0;
 }
 
-static u8_t *net_context_get_mac(struct device *dev)
+static uint8_t *net_context_get_mac(const struct device *dev)
 {
-	struct net_context_test *context = dev->driver_data;
+	struct net_context_test *context = dev->data;
 
 	if (context->mac_addr[2] == 0x00) {
 		/* 00-00-5E-00-53-xx Documentation RFC 7042 */
@@ -959,22 +881,22 @@ static u8_t *net_context_get_mac(struct device *dev)
 
 static void net_context_iface_init(struct net_if *iface)
 {
-	u8_t *mac = net_context_get_mac(net_if_get_device(iface));
+	uint8_t *mac = net_context_get_mac(net_if_get_device(iface));
 
 	net_if_set_link_addr(iface, mac, sizeof(struct net_eth_addr),
 			     NET_LINK_ETHERNET);
 }
 
-static int tester_send(struct net_if *iface, struct net_pkt *pkt)
+static int tester_send(const struct device *dev, struct net_pkt *pkt)
 {
 	struct net_udp_hdr hdr, *udp_hdr;
 
-	if (!pkt->frags) {
+	if (!pkt->buffer) {
 		TC_ERROR("No data to send!\n");
 		return -ENODATA;
 	}
 
-	if (test_token == SENDING || timeout_token == SENDING) {
+	if (test_sending) {
 		/* We are now about to send data to outside but in this
 		 * test we just check what would be sent. In real life
 		 * one would not do something like this in the sending
@@ -987,7 +909,7 @@ static int tester_send(struct net_if *iface, struct net_pkt *pkt)
 		/* We need to swap the IP addresses because otherwise
 		 * the packet will be dropped.
 		 */
-		u16_t port;
+		uint16_t port;
 
 		if (net_pkt_family(pkt) == AF_INET6) {
 			struct in6_addr addr;
@@ -1016,19 +938,18 @@ static int tester_send(struct net_if *iface, struct net_pkt *pkt)
 		udp_hdr->dst_port = port;
 		net_udp_set_hdr(pkt, udp_hdr);
 
-		if (net_recv_data(iface, pkt) < 0) {
+		if (net_recv_data(net_pkt_iface(pkt),
+				  net_pkt_clone(pkt, K_NO_WAIT)) < 0) {
 			TC_ERROR("Data receive failed.");
 			goto out;
 		}
 
-		timeout_token = 0;
+		test_sending = false;
 
 		return 0;
 	}
 
 out:
-	net_pkt_unref(pkt);
-
 	if (data_failure) {
 		test_failed = true;
 	}
@@ -1038,8 +959,8 @@ out:
 
 struct net_context_test net_context_data;
 
-static struct net_if_api net_context_if_api = {
-	.init = net_context_iface_init,
+static struct dummy_api net_context_if_api = {
+	.iface_api.init = net_context_iface_init,
 	.send = tester_send,
 };
 
@@ -1047,7 +968,8 @@ static struct net_if_api net_context_if_api = {
 #define _ETH_L2_CTX_TYPE NET_L2_GET_CTX_TYPE(DUMMY_L2)
 
 NET_DEVICE_INIT(net_context_test, "net_context_test",
-		net_context_dev_init, &net_context_data, NULL,
+		net_context_dev_init, device_pm_control_nop,
+		&net_context_data, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&net_context_if_api, _ETH_L2_LAYER,
 		_ETH_L2_CTX_TYPE, 127);
@@ -1081,37 +1003,37 @@ static void test_init(void)
 void test_main(void)
 {
 	ztest_test_suite(test_context,
-			ztest_unit_test(test_init),
-			ztest_unit_test(net_ctx_get_fail),
-			ztest_unit_test(net_ctx_get_all),
-			ztest_unit_test(net_ctx_get_success),
-			ztest_unit_test(net_ctx_create),
-			ztest_unit_test(net_ctx_bind_fail),
-			ztest_unit_test(net_ctx_bind_uni_success_v6),
-			ztest_unit_test(net_ctx_bind_uni_success_v4),
-			ztest_unit_test(net_ctx_bind_mcast_success),
-			ztest_unit_test(net_ctx_listen_v6),
-			ztest_unit_test(net_ctx_listen_v4),
-			ztest_unit_test(net_ctx_connect_v6),
-			ztest_unit_test(net_ctx_connect_v4),
-			ztest_unit_test(net_ctx_accept_v6),
-			ztest_unit_test(net_ctx_accept_v4),
-			ztest_unit_test(net_ctx_send_v6),
-			ztest_unit_test(net_ctx_send_v4),
-			ztest_unit_test(net_ctx_sendto_v6),
-			ztest_unit_test(net_ctx_sendto_v4),
-			ztest_unit_test(net_ctx_recv_v6),
-			ztest_unit_test(net_ctx_recv_v4),
-			ztest_unit_test(net_ctx_recv_v6_fail),
-			ztest_unit_test(net_ctx_recv_v4_fail),
-			ztest_unit_test(net_ctx_recv_v6_again),
-			ztest_unit_test(net_ctx_recv_v4_again),
-			ztest_unit_test(net_ctx_recv_v6_reconfig),
-			ztest_unit_test(net_ctx_recv_v4_reconfig),
-			ztest_unit_test(net_ctx_recv_v6_timeout),
-			ztest_unit_test(net_ctx_recv_v4_timeout),
-			ztest_unit_test(net_ctx_recv_v6_timeout_forever),
-			ztest_unit_test(net_ctx_recv_v4_timeout_forever),
-			ztest_unit_test(net_ctx_put));
+			 ztest_unit_test(test_init),
+			 ztest_unit_test(test_net_ctx_get_fail),
+			 ztest_unit_test(test_net_ctx_get_all),
+			 ztest_unit_test(test_net_ctx_get_success),
+			 ztest_unit_test(test_net_ctx_create),
+			 ztest_unit_test(test_net_ctx_bind_fail),
+			 ztest_unit_test(test_net_ctx_bind_uni_success_v6),
+			 ztest_unit_test(test_net_ctx_bind_uni_success_v4),
+			 ztest_unit_test(test_net_ctx_bind_mcast_success),
+			 ztest_unit_test(test_net_ctx_listen_v6),
+			 ztest_unit_test(test_net_ctx_listen_v4),
+			 ztest_unit_test(test_net_ctx_connect_v6),
+			 ztest_unit_test(test_net_ctx_connect_v4),
+			 ztest_unit_test(test_net_ctx_accept_v6),
+			 ztest_unit_test(test_net_ctx_accept_v4),
+			 ztest_unit_test(test_net_ctx_send_v6),
+			 ztest_unit_test(test_net_ctx_send_v4),
+			 ztest_unit_test(test_net_ctx_sendto_v6),
+			 ztest_unit_test(test_net_ctx_sendto_v4),
+			 ztest_unit_test(test_net_ctx_recv_v6),
+			 ztest_unit_test(test_net_ctx_recv_v4),
+			 ztest_unit_test(test_net_ctx_recv_v6_fail),
+			 ztest_unit_test(test_net_ctx_recv_v4_fail),
+			 ztest_unit_test(test_net_ctx_recv_v6_again),
+			 ztest_unit_test(test_net_ctx_recv_v4_again),
+			 ztest_unit_test(test_net_ctx_recv_v6_reconfig),
+			 ztest_unit_test(test_net_ctx_recv_v4_reconfig),
+			 ztest_unit_test(test_net_ctx_recv_v6_timeout),
+			 ztest_unit_test(test_net_ctx_recv_v4_timeout),
+			 ztest_unit_test(test_net_ctx_recv_v6_timeout_forever),
+			 ztest_unit_test(test_net_ctx_recv_v4_timeout_forever),
+			 ztest_unit_test(test_net_ctx_put));
 	ztest_run_test_suite(test_context);
 }

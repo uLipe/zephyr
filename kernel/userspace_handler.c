@@ -6,21 +6,22 @@
 
 #include <kernel.h>
 #include <syscall_handler.h>
+#include <kernel_structs.h>
 
-static struct _k_object *validate_any_object(void *obj)
+static struct z_object *validate_any_object(const void *obj)
 {
-	struct _k_object *ko;
+	struct z_object *ko;
 	int ret;
 
-	ko = _k_object_find(obj);
+	ko = z_object_find(obj);
 
 	/* This can be any kernel object and it doesn't have to be
 	 * initialized
 	 */
-	ret = _k_object_validate(ko, K_OBJ_ANY, _OBJ_INIT_ANY);
-	if (ret) {
-#ifdef CONFIG_PRINTK
-		_dump_object_error(ret, obj, ko, K_OBJ_ANY);
+	ret = z_object_validate(ko, K_OBJ_ANY, _OBJ_INIT_ANY);
+	if (ret != 0) {
+#ifdef CONFIG_LOG
+		z_dump_object_error(ret, obj, ko, K_OBJ_ANY);
 #endif
 		return NULL;
 	}
@@ -32,29 +33,35 @@ static struct _k_object *validate_any_object(void *obj)
  * syscall_dispatch.c declares weak handlers results in build errors if these
  * are located in userspace.c. Just put in a separate file.
  *
- * To avoid double _k_object_find() lookups, we don't call the implementation
+ * To avoid double z_object_find() lookups, we don't call the implementation
  * function, but call a level deeper.
  */
-_SYSCALL_HANDLER(k_object_access_grant, object, thread)
+static inline void z_vrfy_k_object_access_grant(const void *object,
+						struct k_thread *thread)
 {
-	struct _k_object *ko;
+	struct z_object *ko;
 
-	_SYSCALL_OBJ_INIT(thread, K_OBJ_THREAD);
-	ko = validate_any_object((void *)object);
-	_SYSCALL_VERIFY_MSG(ko, "object %p access denied", (void *)object);
-	_thread_perms_set(ko, (struct k_thread *)thread);
-
-	return 0;
+	Z_OOPS(Z_SYSCALL_OBJ_INIT(thread, K_OBJ_THREAD));
+	ko = validate_any_object(object);
+	Z_OOPS(Z_SYSCALL_VERIFY_MSG(ko != NULL, "object %p access denied",
+				    object));
+	z_thread_perms_set(ko, thread);
 }
+#include <syscalls/k_object_access_grant_mrsh.c>
 
-_SYSCALL_HANDLER(k_object_access_revoke, object, thread)
+static inline void z_vrfy_k_object_release(const void *object)
 {
-	struct _k_object *ko;
+	struct z_object *ko;
 
-	_SYSCALL_OBJ_INIT(thread, K_OBJ_THREAD);
 	ko = validate_any_object((void *)object);
-	_SYSCALL_VERIFY_MSG(ko, "object %p access denied", (void *)object);
-	_thread_perms_clear(ko, (struct k_thread *)thread);
-
-	return 0;
+	Z_OOPS(Z_SYSCALL_VERIFY_MSG(ko != NULL, "object %p access denied",
+				    (void *)object));
+	z_thread_perms_clear(ko, _current);
 }
+#include <syscalls/k_object_release_mrsh.c>
+
+static inline void *z_vrfy_k_object_alloc(enum k_objects otype)
+{
+	return z_impl_k_object_alloc(otype);
+}
+#include <syscalls/k_object_alloc_mrsh.c>

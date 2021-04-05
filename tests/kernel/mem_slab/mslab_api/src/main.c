@@ -17,13 +17,13 @@ extern void test_mslab_used_get(void);
 /*test case main entry*/
 void test_main(void)
 {
-	ztest_test_suite(test_mslab_api,
+	ztest_test_suite(mslab_api,
 			 ztest_unit_test(test_mslab_kinit),
 			 ztest_unit_test(test_mslab_kdefine),
 			 ztest_unit_test(test_mslab_kdefine_extern),
 			 ztest_unit_test(test_mslab_alloc_free_thread),
 			 ztest_unit_test(test_mslab_alloc_align),
-			 ztest_unit_test(test_mslab_alloc_timeout),
+			 ztest_1cpu_unit_test(test_mslab_alloc_timeout),
 			 ztest_unit_test(test_mslab_used_get));
-	ztest_run_test_suite(test_mslab_api);
+	ztest_run_test_suite(mslab_api);
 }

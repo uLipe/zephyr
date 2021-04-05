@@ -1,39 +1,70 @@
-# Kconfig - MIMXRT1050-EVK board
-#
-# Copyright (c) 2017, NXP
-#
-# SPDX-License-Identifier: Apache-2.0
-#
+# MIMXRT1050-EVK board
 
-if BOARD_MIMXRT1050_EVK
+# Copyright (c) 2017, NXP
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_MIMXRT1050_EVK || BOARD_MIMXRT1050_EVK_QSPI
 
 config BOARD
-	default mimxrt1050_evk
+	default "mimxrt1050_evk"
 
-if GPIO_MCUX_IGPIO
+choice CODE_LOCATION
+	default CODE_FLEXSPI
+endchoice
 
-config GPIO_MCUX_IGPIO_1
-	def_bool y
+config I2C
+	default y if KSCAN
 
-config GPIO_MCUX_IGPIO_2
-	def_bool n
+config KSCAN
+	default y if LVGL
 
-config GPIO_MCUX_IGPIO_3
-	def_bool n
+if KSCAN
 
-config GPIO_MCUX_IGPIO_4
-	def_bool n
+config KSCAN_FT5336
+	default y
 
-config GPIO_MCUX_IGPIO_5
-	def_bool y
+config KSCAN_FT5336_INTERRUPT
+	default y
 
-endif # GPIO_MCUX_IGPIO
+config KSCAN_INIT_PRIORITY
+	default 60
 
-if UART_MCUX_LPUART
+endif # KSCAN
 
-config UART_MCUX_LPUART_1
-	def_bool y
+if NETWORKING
 
-endif # UART_MCUX_LPUART
+config NET_L2_ETHERNET
+	default y
 
-endif # BOARD_MIMXRT1050_EVK
+endif # NETWORKING
+
+if LVGL
+
+config LVGL_DISPLAY_DEV_NAME
+	default "ELCDIF_1"
+
+config LVGL_POINTER_KSCAN
+	default y
+
+config LVGL_POINTER_KSCAN_DEV_NAME
+	default "FT5336"
+
+config LVGL_HOR_RES_MAX
+	default 480
+
+config LVGL_VER_RES_MAX
+	default 272
+
+config LVGL_VDB_SIZE
+	default 16
+
+config LVGL_DPI
+	default 128
+
+choice LVGL_COLOR_DEPTH
+	default LVGL_COLOR_DEPTH_16
+endchoice
+
+endif # LVGL
+
+endif # BOARD_MIMXRT1050_EVK || BOARD_MIMXRT1050_EVK_QSPI

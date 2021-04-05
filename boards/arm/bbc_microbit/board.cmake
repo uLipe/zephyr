@@ -1,8 +1,8 @@
-set(FLASH_SCRIPT pyocd.sh)
-set(DEBUG_SCRIPT pyocd.sh)
+# SPDX-License-Identifier: Apache-2.0
 
-set(PYOCD_TARGET nrf51)
+board_runner_args(pyocd "--target=nrf51")
+board_runner_args(jlink "--device=nrf51" "--speed=4000")
 
-set_property(GLOBAL APPEND PROPERTY FLASH_SCRIPT_ENV_VARS
-  PYOCD_TARGET
-  )
+include(${ZEPHYR_BASE}/boards/common/pyocd.board.cmake)
+include(${ZEPHYR_BASE}/boards/common/nrfjprog.board.cmake)
+include(${ZEPHYR_BASE}/boards/common/jlink.board.cmake)

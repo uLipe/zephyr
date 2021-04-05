@@ -4,14 +4,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-set_ifndef(OPENSDA_FW jlink)
+board_runner_args(pyocd "--target=mimxrt1050_hyperflash")
+board_runner_args(jlink "--device=MCIMXRT1052")
 
-if(OPENSDA_FW STREQUAL jlink)
-  set_ifndef(DEBUG_SCRIPT jlink.sh)
-endif()
-
-set(JLINK_DEVICE Cortex-M7)
-
-set_property(GLOBAL APPEND PROPERTY FLASH_SCRIPT_ENV_VARS
-  JLINK_DEVICE
-  )
+include(${ZEPHYR_BASE}/boards/common/jlink.board.cmake)
+include(${ZEPHYR_BASE}/boards/common/pyocd.board.cmake)

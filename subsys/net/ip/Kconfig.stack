@@ -1,10 +1,7 @@
-# Kconfig.stack - Stack usage related options
+# Stack usage related options
 
-#
 # Copyright (c) 2016 Intel Corporation.
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 menu "Stack usage"
 
@@ -26,19 +23,5 @@ config NET_RX_STACK_SIZE
 	  data from network. There is one RX thread in the system.
 	  This value is a baseline and the actual RX stack size might
 	  be bigger depending on what features are enabled.
-
-if NET_RPL
-config NET_RX_STACK_RPL
-	int "RPL specific RX stack need"
-	default 300
-	help
-	  How much extra RX stack space is required by RPL functionality.
-endif # NET_RPL
-
-if !NET_RPL
-config NET_RX_STACK_RPL
-	int
-	default 0
-endif # !NET_RPL
 
 endmenu

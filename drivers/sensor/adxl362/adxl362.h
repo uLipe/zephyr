@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_ADXL362_H__
-#define __SENSOR_ADXL362_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_ADXL362_ADXL362_H_
+#define ZEPHYR_DRIVERS_SENSOR_ADXL362_ADXL362_H_
 
 #include <zephyr/types.h>
 #include <device.h>
+#include <drivers/gpio.h>
+#include <drivers/spi.h>
 
 #define ADXL362_SLAVE_ID    1
 
@@ -154,14 +156,69 @@
 /* ADXL362 Reset settings */
 #define ADXL362_RESET_KEY               0x52
 
+/* ADXL362 Status check */
+#define ADXL362_STATUS_CHECK_DATA_READY(x)	(((x) >> 0) & 0x1)
+#define ADXL362_STATUS_CHECK_INACT(x)		(((x) >> 5) & 0x1)
+#define ADXL362_STATUS_CHECK_ACTIVITY(x)	(((x) >> 4) & 0x1)
+
+/* ADXL362 scale factors from specifications */
+#define ADXL362_ACCEL_2G_LSB_PER_G	1000
+#define ADXL362_ACCEL_4G_LSB_PER_G	500
+#define ADXL362_ACCEL_8G_LSB_PER_G	235
+
+/* ADXL362 temperature sensor specifications */
+#define ADXL362_TEMP_MC_PER_LSB 65
+#define ADXL362_TEMP_BIAS_LSB 350
+
+struct adxl362_config {
+	char *spi_name;
+	uint32_t spi_max_frequency;
+	uint16_t spi_slave;
+#if DT_INST_SPI_DEV_HAS_CS_GPIOS(0)
+	const char *gpio_cs_port;
+	gpio_pin_t cs_gpio;
+	gpio_dt_flags_t cs_flags;
+#endif
+#if defined(CONFIG_ADXL362_TRIGGER)
+	const char *gpio_port;
+	gpio_pin_t int_gpio;
+	gpio_dt_flags_t int_flags;
+	uint8_t int1_config;
+	uint8_t int2_config;
+#endif
+};
+
 struct adxl362_data {
-	struct device *spi;
-	s32_t acc_x;
-	s32_t acc_y;
-	s32_t acc_z;
-	s32_t temp;
-	u8_t spi_slave;
-	u8_t selected_range;
+	const struct device *spi;
+	struct spi_config spi_cfg;
+#if DT_INST_SPI_DEV_HAS_CS_GPIOS(0)
+	struct spi_cs_control adxl362_cs_ctrl;
+#endif
+	int16_t acc_x;
+	int16_t acc_y;
+	int16_t acc_z;
+	int16_t temp;
+	uint8_t selected_range;
+
+#if defined(CONFIG_ADXL362_TRIGGER)
+	const struct device *dev;
+	const struct device *gpio;
+	struct gpio_callback gpio_cb;
+	struct k_mutex trigger_mutex;
+
+	sensor_trigger_handler_t th_handler;
+	struct sensor_trigger th_trigger;
+	sensor_trigger_handler_t drdy_handler;
+	struct sensor_trigger drdy_trigger;
+
+#if defined(CONFIG_ADXL362_TRIGGER_OWN_THREAD)
+	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_ADXL362_THREAD_STACK_SIZE);
+	struct k_sem gpio_sem;
+	struct k_thread thread;
+#elif defined(CONFIG_ADXL362_TRIGGER_GLOBAL_THREAD)
+	struct k_work work;
+#endif
+#endif /* CONFIG_ADXL362_TRIGGER */
 };
 
 #if defined(CONFIG_ADXL362_ACCEL_RANGE_RUNTIME) ||\
@@ -188,7 +245,23 @@ struct adxl362_data {
 #	define ADXL362_DEFAULT_ODR_ACC		ADXL362_ODR_400_HZ
 #endif
 
-#define SYS_LOG_DOMAIN "ADXL362"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_ADXL362_H__ */
+#ifdef CONFIG_ADXL362_TRIGGER
+int adxl362_reg_write_mask(const struct device *dev,
+			   uint8_t reg_addr, uint8_t mask, uint8_t data);
+
+int adxl362_get_status(const struct device *dev, uint8_t *status);
+
+int adxl362_interrupt_activity_enable(const struct device *dev);
+
+int adxl362_trigger_set(const struct device *dev,
+			const struct sensor_trigger *trig,
+			sensor_trigger_handler_t handler);
+
+int adxl362_init_interrupt(const struct device *dev);
+
+int adxl362_set_interrupt_mode(const struct device *dev, uint8_t mode);
+
+int adxl362_clear_data_ready(const struct device *dev);
+#endif /* CONFIG_ADT7420_TRIGGER */
+
+#endif /* ZEPHYR_DRIVERS_SENSOR_ADXL362_ADXL362_H_ */

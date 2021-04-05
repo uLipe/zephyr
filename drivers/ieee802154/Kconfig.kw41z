@@ -1,17 +1,12 @@
-# Kconfig.kw41z - NXP KW41Z configuration options
-#
-#
-# Copyright (c) 2017 Linaro Limited
-#
-# SPDX-License-Identifier: Apache-2.0
-#
+# NXP KW41Z configuration options
 
-menuconfig  IEEE802154_KW41Z
+# Copyright (c) 2017 Linaro Limited
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig IEEE802154_KW41Z
 	bool "NXP KW41Z Driver support"
 	depends on NETWORKING
-	select NET_L2_IEEE802154
-	select NEWLIB_LIBC
-	default n
+	select REQUIRES_FULL_LIBC
 
 if IEEE802154_KW41Z
 
@@ -31,9 +26,8 @@ config IEEE802154_KW41Z_INIT_PRIO
 
 config KW41_DBG_TRACE
 	bool "Enabled simplified debug tracing of events"
-	default n
 	help
-	The value depends on your debugging needs. This generates an encoded
-	trace of events without going to debug logging to avoid timing impact
-	on running code. The buffer is post analyzed via the debugger.
+	  The value depends on your debugging needs. This generates an encoded
+	  trace of events without going to debug logging to avoid timing impact
+	  on running code. The buffer is post analyzed via the debugger.
 endif

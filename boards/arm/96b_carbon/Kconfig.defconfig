@@ -1,47 +1,56 @@
-# Kconfig - 96boards Carbon board configuration
-#
+# 96boards Carbon board configuration
+
 # Copyright (c) 2016 Linaro Limited.
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 if BOARD_96B_CARBON
 
 config BOARD
-	default 96b_carbon
+	default "96b_carbon"
+
+config SPI_STM32_INTERRUPT
+	default y
+	depends on SPI
 
 if BT
 
 config SPI
 	default y
 
-config SPI_STM32
-	default y
-
-config SPI_STM32_INTERRUPT
-	default y
-
-config SPI_1
-	default y
-
-config SPI_1_IRQ_PRI
-	default 5
-
-config SPI_LEGACY_API
-	default n
+choice BT_HCI_BUS_TYPE
+	default BT_SPI
+endchoice
 
 endif # BT
 
 if NETWORKING
 
+# Re-create the NET_L2_BT dependencies here
+config BT
+	default y
+
+config BT_PERIPHERAL
+	default BT
+
+config BT_CENTRAL
+	default BT
+
+config BT_SMP
+	default BT
+
+config BT_L2CAP_DYNAMIC_CHANNEL
+	default BT
+
 # BT is the only onboard network iface, so use it for IP networking
 # if it's enabled
 
 config NET_L2_BT
-	default y
+	depends on NET_IPV6
+	default BT
 
 config NET_L2_BT_ZEP1656
-	default y
+	depends on NET_IPV6
+	default BT
 
 endif # NETWORKING
 
