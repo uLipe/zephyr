@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import re
 
-from sphinx.highlighting import lexers
 import sphinx_rtd_theme
 
 
@@ -32,7 +31,6 @@ sys.path.insert(0, str(ZEPHYR_BASE / "doc" / "_scripts"))
 # for autodoc directives on runners.xyz.
 sys.path.insert(0, str(ZEPHYR_BASE / "scripts" / "west_commands"))
 
-from lexer.DtsLexer import DtsLexer
 import redirects
 
 try:
@@ -82,6 +80,8 @@ extensions = [
     "zephyr.dtcompatible-role",
     "zephyr.link-roles",
     "sphinx_tabs.tabs",
+    "zephyr.warnings_filter",
+    "zephyr.doxyrunner",
 ]
 
 # Only use SVG converter when it is really needed, e.g. LaTeX.
@@ -106,8 +106,6 @@ default_role = "any"
 
 pygments_style = "sphinx"
 
-lexers["DTS"] = DtsLexer()
-
 todo_include_todos = False
 
 rst_epilog = """
@@ -120,7 +118,7 @@ html_theme = "sphinx_rtd_theme"
 html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 html_theme_options = {"prev_next_buttons_location": None}
 html_title = "Zephyr Project Documentation"
-html_logo = "images/Zephyr-Kite-logo.png"
+html_logo = "_static/images/logo.svg"
 html_favicon = "images/zp_favicon.png"
 html_static_path = [str(ZEPHYR_BASE / "doc" / "_static")]
 html_last_updated_fmt = "%b %d, %Y"
@@ -158,11 +156,19 @@ latex_documents = [
     ("index", "zephyr.tex", "Zephyr Project Documentation", "many", "manual"),
 ]
 
+# -- Options for zephyr.doxyrunner plugin ---------------------------------
+
+doxyrunner_doxygen = os.environ.get("DOXYGEN_EXECUTABLE", "doxygen")
+doxyrunner_doxyfile = ZEPHYR_BASE / "doc" / "zephyr.doxyfile.in"
+doxyrunner_outdir = ZEPHYR_BUILD / "doxygen"
+doxyrunner_fmt = True
+doxyrunner_fmt_vars = {"ZEPHYR_BASE": str(ZEPHYR_BASE)}
+
 # -- Options for Breathe plugin -------------------------------------------
 
 breathe_projects = {
-    "Zephyr": str(ZEPHYR_BUILD / "doxygen" / "xml"),
-    "doc-examples": str(ZEPHYR_BUILD / "doxygen" / "xml"),
+    "Zephyr": str(doxyrunner_outdir / "xml"),
+    "doc-examples": str(doxyrunner_outdir / "xml"),
 }
 breathe_default_project = "Zephyr"
 breathe_domain_by_extension = {
@@ -179,6 +185,7 @@ cpp_id_attributes = [
     "__used",
     "__unused",
     "__weak",
+    "__attribute_const__",
     "__DEPRECATED_MACRO",
     "FUNC_NORETURN",
     "__subsystem",
@@ -188,6 +195,11 @@ c_id_attributes = cpp_id_attributes
 # -- Options for html_redirect plugin -------------------------------------
 
 html_redirect_pages = redirects.REDIRECTS
+
+# -- Options for zephyr.warnings_filter -----------------------------------
+
+warnings_filter_config = str(ZEPHYR_BASE / "doc" / "known-warnings.txt")
+warnings_filter_silent = False
 
 # -- Linkcheck options ----------------------------------------------------
 
@@ -202,8 +214,10 @@ linkcheck_anchors = False
 
 
 def setup(app):
-    app.add_css_file("css/zephyr-custom.css")
-    app.add_js_file("js/zephyr-custom.js")
+    # theme customizations
+    app.add_css_file("css/custom.css")
+    app.add_js_file("js/custom.js")
+    app.add_js_file("js/dark-mode-toggle.min.mjs", type="module")
 
     app.add_js_file("https://www.googletagmanager.com/gtag/js?id=UA-831873-47")
     app.add_js_file("js/ga-tracker.js")

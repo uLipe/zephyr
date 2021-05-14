@@ -84,7 +84,9 @@ struct uart_cmsdk_apb_dev_data {
 	((volatile struct uart_cmsdk_apb *)(DEV_CFG(dev))->base)
 
 static const struct uart_driver_api uart_cmsdk_apb_driver_api;
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
 static void uart_cmsdk_apb_isr(const struct device *dev);
+#endif
 
 /**
  * @brief Set the baud rate
@@ -503,7 +505,7 @@ static struct uart_cmsdk_apb_dev_data uart_cmsdk_apb_dev_data_0 = {
 
 DEVICE_DT_INST_DEFINE(0,
 		    &uart_cmsdk_apb_init,
-		    device_pm_control_nop,
+		    NULL,
 		    &uart_cmsdk_apb_dev_data_0,
 		    &uart_cmsdk_apb_dev_cfg_0, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
@@ -568,7 +570,7 @@ static struct uart_cmsdk_apb_dev_data uart_cmsdk_apb_dev_data_1 = {
 
 DEVICE_DT_INST_DEFINE(1,
 		    &uart_cmsdk_apb_init,
-		    device_pm_control_nop,
+		    NULL,
 		    &uart_cmsdk_apb_dev_data_1,
 		    &uart_cmsdk_apb_dev_cfg_1, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
@@ -633,7 +635,7 @@ static struct uart_cmsdk_apb_dev_data uart_cmsdk_apb_dev_data_2 = {
 
 DEVICE_DT_INST_DEFINE(2,
 		    &uart_cmsdk_apb_init,
-		    device_pm_control_nop,
+		    NULL,
 		    &uart_cmsdk_apb_dev_data_2,
 		    &uart_cmsdk_apb_dev_cfg_2, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
@@ -698,7 +700,7 @@ static struct uart_cmsdk_apb_dev_data uart_cmsdk_apb_dev_data_3 = {
 
 DEVICE_DT_INST_DEFINE(3,
 		    &uart_cmsdk_apb_init,
-		    device_pm_control_nop,
+		    NULL,
 		    &uart_cmsdk_apb_dev_data_3,
 		    &uart_cmsdk_apb_dev_cfg_3, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
@@ -763,7 +765,7 @@ static struct uart_cmsdk_apb_dev_data uart_cmsdk_apb_dev_data_4 = {
 
 DEVICE_DT_INST_DEFINE(4,
 		    &uart_cmsdk_apb_init,
-		    device_pm_control_nop,
+		    NULL,
 		    &uart_cmsdk_apb_dev_data_4,
 		    &uart_cmsdk_apb_dev_cfg_4, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,

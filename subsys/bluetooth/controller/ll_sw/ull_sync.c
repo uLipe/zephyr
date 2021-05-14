@@ -26,6 +26,7 @@
 #include "lll/lll_vendor.h"
 #include "lll_chan.h"
 #include "lll_scan.h"
+#include "lll/lll_df_types.h"
 #include "lll_sync.h"
 #include "lll_sync_iso.h"
 
@@ -35,6 +36,8 @@
 #include "ull_internal.h"
 #include "ull_scan_internal.h"
 #include "ull_sync_internal.h"
+#include "ull_df_types.h"
+#include "ull_df_internal.h"
 
 #include "ll.h"
 
@@ -48,14 +51,23 @@ static int init_reset(void);
 static inline struct ll_sync_set *sync_acquire(void);
 static void timeout_cleanup(struct ll_sync_set *sync);
 static void ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
-		      uint16_t lazy, void *param);
+		      uint16_t lazy, uint8_t force, void *param);
 static void ticker_op_cb(uint32_t status, void *param);
 static void ticker_update_sync_op_cb(uint32_t status, void *param);
 static void ticker_stop_op_cb(uint32_t status, void *param);
 static void sync_lost(void *param);
 
+#if defined(CONFIG_BT_CTLR_DF_SCAN_CTE_RX)
+static void ticker_update_op_status_give(uint32_t status, void *param);
+#endif /* CONFIG_BT_CTLR_DF_SCAN_CTE_RX */
+
 static struct ll_sync_set ll_sync_pool[CONFIG_BT_PER_ADV_SYNC_MAX];
 static void *sync_free;
+
+#if defined(CONFIG_BT_CTLR_DF_SCAN_CTE_RX)
+/* Semaphore to wakeup thread on ticker API callback */
+static struct k_sem sem_ticker_cb;
+#endif /* CONFIG_BT_CTLR_DF_SCAN_CTE_RX */
 
 uint8_t ll_sync_create(uint8_t options, uint8_t sid, uint8_t adv_addr_type,
 			    uint8_t *adv_addr, uint16_t skip,
@@ -159,6 +171,10 @@ uint8_t ll_sync_create(uint8_t options, uint8_t sid, uint8_t adv_addr_type,
 
 	/* Reporting initially enabled/disabled */
 	lll_sync->is_rx_enabled = options & BIT(1);
+
+#if defined(CONFIG_BT_CTLR_DF_SCAN_CTE_RX)
+	ull_df_sync_cfg_init(&lll_sync->df_cfg);
+#endif /* CONFIG_BT_CTLR_DF_SCAN_CTE_RX */
 
 	/* sync_lost node_rx */
 	sync->node_rx_lost.hdr.link = link_sync_lost;
@@ -323,7 +339,7 @@ uint16_t ull_sync_handle_get(struct ll_sync_set *sync)
 
 uint16_t ull_sync_lll_handle_get(struct lll_sync *lll)
 {
-	return ull_sync_handle_get((void *)HDR_LLL2EVT(lll));
+	return ull_sync_handle_get(HDR_LLL2ULL(lll));
 }
 
 void ull_sync_release(struct ll_sync_set *sync)
@@ -424,26 +440,27 @@ void ull_sync_setup(struct ll_scan_set *scan, struct ll_scan_aux_set *aux,
 	sync_offset_us += (si->offs_adjust ? OFFS_ADJUST_US : 0U);
 	sync_offset_us -= PKT_AC_US(pdu->len, 0, lll->phy);
 	sync_offset_us -= EVENT_OVERHEAD_START_US;
+	sync_offset_us -= EVENT_TICKER_RES_MARGIN_US;
 	sync_offset_us -= EVENT_JITTER_US;
 	sync_offset_us -= ready_delay_us;
 
 	interval_us -= lll->window_widening_periodic_us;
 
 	/* TODO: active_to_start feature port */
-	sync->evt.ticks_active_to_start = 0U;
-	sync->evt.ticks_xtal_to_start =
+	sync->ull.ticks_active_to_start = 0U;
+	sync->ull.ticks_prepare_to_start =
 		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_XTAL_US);
-	sync->evt.ticks_preempt_to_start =
+	sync->ull.ticks_preempt_to_start =
 		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_PREEMPT_MIN_US);
-	sync->evt.ticks_slot =
+	sync->ull.ticks_slot =
 		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US +
 				       ready_delay_us +
 				       PKT_AC_US(PDU_AC_EXT_PAYLOAD_SIZE_MAX,
 						 0, lll->phy) +
 				       EVENT_OVERHEAD_END_US);
 
-	ticks_slot_offset = MAX(sync->evt.ticks_active_to_start,
-				sync->evt.ticks_xtal_to_start);
+	ticks_slot_offset = MAX(sync->ull.ticks_active_to_start,
+				sync->ull.ticks_prepare_to_start);
 
 	if (IS_ENABLED(CONFIG_BT_CTLR_LOW_LAT)) {
 		ticks_slot_overhead = ticks_slot_offset;
@@ -458,7 +475,7 @@ void ull_sync_setup(struct ll_scan_set *scan, struct ll_scan_aux_set *aux,
 			   HAL_TICKER_US_TO_TICKS(interval_us),
 			   HAL_TICKER_REMAINDER(interval_us),
 			   TICKER_NULL_LAZY,
-			   (sync->evt.ticks_slot + ticks_slot_overhead),
+			   (sync->ull.ticks_slot + ticks_slot_overhead),
 			   ticker_cb, sync, ticker_op_cb, (void *)__LINE__);
 	LL_ASSERT((ret == TICKER_STATUS_SUCCESS) ||
 		  (ret == TICKER_STATUS_BUSY));
@@ -466,14 +483,18 @@ void ull_sync_setup(struct ll_scan_set *scan, struct ll_scan_aux_set *aux,
 
 void ull_sync_done(struct node_rx_event_done *done)
 {
-	struct lll_sync *lll = (void *)HDR_ULL2LLL(done->param);
-	struct ll_sync_set *sync = (void *)HDR_LLL2EVT(lll);
 	uint32_t ticks_drift_minus;
 	uint32_t ticks_drift_plus;
+	struct ll_sync_set *sync;
 	uint16_t elapsed_event;
+	struct lll_sync *lll;
 	uint16_t skip_event;
 	uint16_t lazy;
 	uint8_t force;
+
+	/* Get reference to ULL context */
+	sync = CONTAINER_OF(done->param, struct ll_sync_set, ull);
+	lll = &sync->lll;
 
 	/* Events elapsed used in timeout checks below */
 	skip_event = lll->skip_event;
@@ -556,12 +577,69 @@ void ull_sync_done(struct node_rx_event_done *done)
 	}
 }
 
+#if defined(CONFIG_BT_CTLR_DF_SCAN_CTE_RX)
+/* @brief Function updates periodic sync slot duration.
+ *
+ * @param[in] sync              Pointer to sync instance
+ * @param[in] slot_plus_us      Number of microsecond to add to ticker slot
+ * @param[in] slot_minus_us     Number of microsecond to subtracks from ticker slot
+ *
+ * @retval 0            Successful ticker slot update.
+ * @retval -ENOENT      Ticker node related with provided sync is already stopped.
+ * @retval -ENOMEM      Couldn't enqueue update ticker job.
+ * @retval -EFAULT      Somethin else went wrong.
+ */
+int ull_sync_slot_update(struct ll_sync_set *sync, uint32_t slot_plus_us,
+			 uint32_t slot_minus_us)
+{
+	uint32_t ret;
+	uint32_t ret_cb;
+
+	ret_cb = TICKER_STATUS_BUSY;
+	ret = ticker_update(TICKER_INSTANCE_ID_CTLR,
+			    TICKER_USER_ID_THREAD,
+			    (TICKER_ID_SCAN_SYNC_BASE +
+			    ull_sync_handle_get(sync)),
+			    0, 0,
+			    slot_plus_us,
+			    slot_minus_us,
+			    0, 0,
+			    ticker_update_op_status_give,
+			    (void *)&ret_cb);
+	if (ret == TICKER_STATUS_BUSY || ret == TICKER_STATUS_SUCCESS) {
+		/* Wait for callback or clear semaphore is callback was already
+		 * executed.
+		 */
+		k_sem_take(&sem_ticker_cb, K_FOREVER);
+
+		if (ret_cb == TICKER_STATUS_FAILURE) {
+			return -EFAULT; /* Something went wrong */
+		} else {
+			return 0;
+		}
+	} else {
+		if (ret_cb != TICKER_STATUS_BUSY) {
+			/* Ticker callback was executed and job enqueue was successful.
+			 * Call k_sem_take to clear ticker callback semaphore.
+			 */
+			k_sem_take(&sem_ticker_cb, K_FOREVER);
+		}
+		/* Ticker was already stopped or job was not enqueued. */
+		return (ret_cb == TICKER_STATUS_FAILURE) ? -ENOENT : -ENOMEM;
+	}
+}
+#endif /* CONFIG_BT_CTLR_DF_SCAN_CTE_RX */
+
 static int init_reset(void)
 {
 	/* Initialize sync pool. */
 	mem_init(ll_sync_pool, sizeof(struct ll_sync_set),
 		 sizeof(ll_sync_pool) / sizeof(struct ll_sync_set),
 		 &sync_free);
+
+#if defined(CONFIG_BT_CTLR_DF_SCAN_CTE_RX)
+	k_sem_init(&sem_ticker_cb, 0, 1);
+#endif /* CONFIG_BT_CTLR_DF_SCAN_CTE_RX */
 
 	return 0;
 }
@@ -585,7 +663,7 @@ static void timeout_cleanup(struct ll_sync_set *sync)
 }
 
 static void ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
-		      uint16_t lazy, void *param)
+		      uint16_t lazy, uint8_t force, void *param)
 {
 	static memq_link_t link;
 	static struct mayfly mfy = {0, 0, &link, NULL, lll_sync_prepare};
@@ -607,6 +685,7 @@ static void ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
 	p.ticks_at_expire = ticks_at_expire;
 	p.remainder = remainder;
 	p.lazy = lazy;
+	p.force = force;
 	p.param = lll;
 	mfy.param = &p;
 
@@ -661,3 +740,12 @@ static void sync_lost(void *param)
 	ll_rx_put(rx->hdr.link, rx);
 	ll_rx_sched();
 }
+
+#if defined(CONFIG_BT_CTLR_DF_SCAN_CTE_RX)
+static void ticker_update_op_status_give(uint32_t status, void *param)
+{
+	*((uint32_t volatile *)param) = status;
+
+	k_sem_give(&sem_ticker_cb);
+}
+#endif /* CONFIG_BT_CTLR_DF_SCAN_CTE_RX */

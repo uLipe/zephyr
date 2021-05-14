@@ -68,6 +68,8 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #define MAX_TOKEN_LEN		8
 
+#define LWM2M_MAX_PATH_STR_LEN sizeof("65535/65535/65535/65535")
+
 struct observe_node {
 	sys_snode_t node;
 	struct lwm2m_ctx *ctx;
@@ -506,7 +508,8 @@ static int engine_add_observer(struct lwm2m_message *msg,
 	observe_node_data[i].event_timestamp =
 			observe_node_data[i].last_timestamp;
 	observe_node_data[i].min_period_sec = attrs.pmin;
-	observe_node_data[i].max_period_sec = MAX(attrs.pmax, attrs.pmin);
+	observe_node_data[i].max_period_sec = (attrs.pmax > 0) ? MAX(attrs.pmax, attrs.pmin)
+							       : attrs.pmax;
 	observe_node_data[i].format = format;
 	observe_node_data[i].counter = OBSERVE_COUNTER_START;
 	sys_slist_append(&engine_observer_list,
@@ -555,9 +558,8 @@ static int engine_remove_observer(const uint8_t *token, uint8_t tkl)
 }
 
 #if defined(CONFIG_LOG)
-char *lwm2m_path_log_strdup(struct lwm2m_obj_path *path)
+char *lwm2m_path_log_strdup(char *buf, struct lwm2m_obj_path *path)
 {
-	char buf[sizeof("65535/65535/65535/65535")];
 	size_t cur = sprintf(buf, "%u", path->obj_id);
 
 	if (path->level > 1) {
@@ -577,6 +579,7 @@ char *lwm2m_path_log_strdup(struct lwm2m_obj_path *path)
 #if defined(CONFIG_LWM2M_CANCEL_OBSERVE_BY_PATH)
 static int engine_remove_observer_by_path(struct lwm2m_obj_path *path)
 {
+	char buf[LWM2M_MAX_PATH_STR_LEN];
 	struct observe_node *obs, *found_obj = NULL;
 	sys_snode_t *prev_node = NULL;
 
@@ -594,7 +597,8 @@ static int engine_remove_observer_by_path(struct lwm2m_obj_path *path)
 		return -ENOENT;
 	}
 
-	LOG_INF("Removing observer for path %s", lwm2m_path_log_strdup(path));
+	LOG_INF("Removing observer for path %s",
+		lwm2m_path_log_strdup(buf, path));
 	sys_slist_remove(&engine_observer_list, prev_node, &found_obj->node);
 	(void)memset(found_obj, 0, sizeof(*found_obj));
 
@@ -1052,15 +1056,16 @@ int lwm2m_send_message(struct lwm2m_message *msg)
 	}
 
 	if (msg->type == COAP_TYPE_CON) {
-		int32_t remaining = k_delayed_work_remaining_get(
-					&msg->ctx->retransmit_work);
+		int32_t remaining =
+			k_ticks_to_ms_ceil32(k_work_delayable_remaining_get(
+				&msg->ctx->retransmit_work));
 
 		/* If the item is already pending and its timeout is smaller
 		 * than the new one, skip the submission.
 		 */
 		if (remaining == 0 || remaining > msg->pending->timeout) {
-			k_delayed_work_submit(&msg->ctx->retransmit_work,
-					      K_MSEC(msg->pending->timeout));
+			k_work_reschedule(&msg->ctx->retransmit_work,
+					  K_MSEC(msg->pending->timeout));
 		}
 	} else {
 		lwm2m_reset_message(msg, true);
@@ -1439,8 +1444,48 @@ int lwm2m_engine_create_obj_inst(char *pathstr)
 		return -EINVAL;
 	}
 
-	return lwm2m_create_obj_inst(path.obj_id, path.obj_inst_id, &obj_inst);
+	ret = lwm2m_create_obj_inst(path.obj_id, path.obj_inst_id, &obj_inst);
+	if (ret < 0) {
+		return ret;
+	}
+
+#if defined(CONFIG_LWM2M_RD_CLIENT_SUPPORT)
+	engine_trigger_update(true);
+#endif
+
+	return 0;
 }
+
+int lwm2m_engine_delete_obj_inst(char *pathstr)
+{
+	struct lwm2m_obj_path path;
+	int ret = 0;
+
+	LOG_DBG("path: %s", log_strdup(pathstr));
+
+	/* translate path -> path_obj */
+	ret = string_to_path(pathstr, &path, '/');
+	if (ret < 0) {
+		return ret;
+	}
+
+	if (path.level != 2U) {
+		LOG_ERR("path must have 2 parts");
+		return -EINVAL;
+	}
+
+	ret = lwm2m_delete_obj_inst(path.obj_id, path.obj_inst_id);
+	if (ret < 0) {
+		return ret;
+	}
+
+#if defined(CONFIG_LWM2M_RD_CLIENT_SUPPORT)
+	engine_trigger_update(true);
+#endif
+
+	return 0;
+}
+
 
 int lwm2m_engine_set_res_data(char *pathstr, void *data_ptr, uint16_t data_len,
 			      uint8_t data_flags)
@@ -3102,13 +3147,17 @@ static int lwm2m_delete_handler(struct lwm2m_message *msg)
 	}
 
 	ret = lwm2m_delete_obj_inst(msg->path.obj_id, msg->path.obj_inst_id);
+	if (ret < 0) {
+		return ret;
+	}
+
 #if defined(CONFIG_LWM2M_RD_CLIENT_SUPPORT)
-	if (!ret) {
+	if (!msg->ctx->bootstrap_mode) {
 		engine_trigger_update(true);
 	}
 #endif
 
-	return ret;
+	return 0;
 }
 
 static int do_read_op(struct lwm2m_message *msg, uint16_t content_format)
@@ -4250,7 +4299,7 @@ next:
 		remaining = 0;
 	}
 
-	k_delayed_work_submit(&client_ctx->retransmit_work, K_MSEC(remaining));
+	k_work_reschedule(&client_ctx->retransmit_work, K_MSEC(remaining));
 }
 
 static int notify_message_reply_cb(const struct coap_packet *response,
@@ -4452,19 +4501,23 @@ static int lwm2m_engine_service(void)
 		/*
 		 * manual notify requirements:
 		 * - event_timestamp > last_timestamp
-		 * - current timestamp > last_timestamp + min_period_sec
+		 * - if min_period_sec is set:
+		 *   current timestamp > last_timestamp + min_period_sec
 		 */
 		if (obs->event_timestamp > obs->last_timestamp &&
-		    timestamp > obs->last_timestamp +
-				MSEC_PER_SEC * obs->min_period_sec) {
+		    (obs->min_period_sec == 0 ||
+		     timestamp > obs->last_timestamp +
+				MSEC_PER_SEC * obs->min_period_sec)) {
 			obs->last_timestamp = k_uptime_get();
 			generate_notify_message(obs, true);
 
 		/*
 		 * automatic time-based notify requirements:
-		 * - current timestamp > last_timestamp + max_period_sec
+		 * - if max_period_sec is set:
+		 *   current timestamp > last_timestamp + max_period_sec
 		 */
-		} else if (timestamp > obs->last_timestamp +
+		} else if (obs->max_period_sec > 0 &&
+			   timestamp > obs->last_timestamp +
 				MSEC_PER_SEC * obs->max_period_sec) {
 			obs->last_timestamp = k_uptime_get();
 			generate_notify_message(obs, false);
@@ -4496,7 +4549,7 @@ int lwm2m_engine_context_close(struct lwm2m_ctx *client_ctx)
 	size_t i;
 
 	/* Cancel pending retransmit work */
-	k_delayed_work_cancel(&client_ctx->retransmit_work);
+	k_work_cancel_delayable(&client_ctx->retransmit_work);
 
 	/* Remove observes for this context */
 	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&engine_observer_list,
@@ -4532,7 +4585,7 @@ int lwm2m_engine_context_close(struct lwm2m_ctx *client_ctx)
 
 void lwm2m_engine_context_init(struct lwm2m_ctx *client_ctx)
 {
-	k_delayed_work_init(&client_ctx->retransmit_work, retransmit_request);
+	k_work_init_delayable(&client_ctx->retransmit_work, retransmit_request);
 	sys_mutex_init(&client_ctx->send_lock);
 }
 

@@ -333,7 +333,8 @@ static int mcp2515_set_timing(const struct device *dev,
 	uint8_t reset_mode;
 
 	/* CNF1; SJW<7:6> | BRP<5:0> */
-	uint8_t brp = timing->prescaler;
+	__ASSERT(timing->prescaler > 0, "Prescaler should be bigger than zero");
+	uint8_t brp = timing->prescaler - 1;
 	const uint8_t sjw = (timing->sjw - 1) << 6;
 	uint8_t cnf1 = sjw | brp;
 
@@ -969,7 +970,7 @@ static const struct mcp2515_config mcp2515_config_1 = {
 	.sample_point = DT_INST_PROP_OR(0, sample_point, 0)
 };
 
-DEVICE_DT_INST_DEFINE(0, &mcp2515_init, device_pm_control_nop,
+DEVICE_DT_INST_DEFINE(0, &mcp2515_init, NULL,
 		    &mcp2515_data_1, &mcp2515_config_1, POST_KERNEL,
 		    CONFIG_CAN_MCP2515_INIT_PRIORITY, &can_api_funcs);
 
@@ -1001,7 +1002,7 @@ static int socket_can_init(const struct device *dev)
 }
 
 NET_DEVICE_INIT(socket_can_mcp2515_1, SOCKET_CAN_NAME_1, socket_can_init,
-		device_pm_control_nop, &socket_can_context_1, NULL,
+		NULL, &socket_can_context_1, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		&socket_can_api,
 		CANBUS_RAW_L2, NET_L2_GET_CTX_TYPE(CANBUS_RAW_L2), CAN_MTU);

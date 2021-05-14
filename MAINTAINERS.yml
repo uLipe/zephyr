@@ -152,12 +152,13 @@ ARM64 arch:
     collaborators:
         - npitre
         - ioannisg
+        - povergoing
     files:
         - arch/arm64/
         - include/arch/arm64/
         - tests/arch/arm64/
-        - soc/arm64/qemu_cortex_a53/
-        - boards/arm64/qemu_cortex_a53/
+        - soc/arm64/
+        - boards/arm64/
         - dts/arm64/
     labels:
         - "area: ARM64"
@@ -246,15 +247,15 @@ CMSIS API layer:
     collaborators:
          - nashif
     files:
-         - lib/cmsis_rtos_v*/
-         - include/cmsis_rtos_v*/
-         - samples/portability/cmsis_rtos_v*/
-         - tests/portability/cmsis_rtos_v*/
+         - subsys/portability/cmsis_rtos_v*/
+         - include/portability/cmsis*
+         - samples/subsys/portability/cmsis_rtos_v*/
+         - tests/subsys/portability/cmsis_rtos_v*/
     labels:
         - "area: Portability"
 
 Common arch:
-    status: maintained
+    status: orphaned
     collaborators:
         - dcpleung
         - nashif
@@ -370,6 +371,7 @@ Documentation:
         - nashif
         - utzig
         - jocelyn-li
+        - mbolivar-nordic
     files:
         - doc/*
         - doc/static/
@@ -416,6 +418,9 @@ Documentation:
     collaborators:
         - henrikbrixandersen
         - karstenkoenig
+        - nixward
+        - martinjaeger
+        - legoabram
     files:
         - drivers/can/
         - include/canbus/
@@ -907,7 +912,6 @@ JSON Web Token:
         - mrfuchs
     files:
         - subsys/jwt/
-
     labels:
         - "area: JSON"
 
@@ -963,7 +967,6 @@ Little FS:
         - tests/subsys/fs/littlefs/
     description: >-
        Little FS
-
     labels:
         - "area: File System"
 
@@ -1007,9 +1010,9 @@ MCU Manager:
         - "area: mcumgr"
 
 OSDP:
-    status: maintained
+    status: orphaned
     collaborators:
-        - cbsiddharth
+        - sidcha
     files:
         - subsys/mgmt/osdp/
         - include/mgmt/osdp.h
@@ -1083,7 +1086,6 @@ Networking:
         - include/net/buf.h
         - subsys/net/buf.c
         - tests/net/buf/
-
     labels:
         - "area: Networking"
 
@@ -1099,6 +1101,7 @@ Networking:
         - tests/net/lib/coap/
     labels:
         - "area: Networking"
+
 "Networking: LWM2M":
     status: maintained
     maintainers:
@@ -1164,10 +1167,10 @@ Power management:
         - nashif
         - mengxianglinx
     files:
-        - include/power/power.h
-        - samples/subsys/power/
-        - subsys/power/
-        - tests/subsys/power/
+        - include/pm/pm.h
+        - samples/subsys/pm/
+        - subsys/pm/
+        - tests/subsys/pm/
     labels:
         - "area: Power Management"
 
@@ -1242,7 +1245,7 @@ Shields:
         - "area: Shields"
 
 SPARC arch:
-    status: maintained
+    status: orphaned
     collaborators:
         - martin-aberg
     files:
@@ -1266,7 +1269,7 @@ Synopsys Platforms:
         - "platform: Synopsys"
 
 Nuvoton Platforms:
-    status: maintained
+    status: orphaned
     collaborators:
         - MulinChao
         - sjg20
@@ -1283,7 +1286,7 @@ Nuvoton Platforms:
         - "platform: Nuvoton"
 
 SiLabs Platforms:
-    status: maintained
+    status: orphaned
     collaborators:
         - chrta
     files:
@@ -1375,9 +1378,13 @@ STM32 Platforms:
     status: maintained
     maintainers:
         - erwango
+    collaborators:
+        - ABOSTM
+        - FRASTM
     files:
         - boards/arm/nucleo_*/
         - boards/arm/stm32*_disco/
+        - boards/arm/stm32*_dk*/
         - boards/arm/stm32*_eval/
         - drivers/*/*stm32*/
         - drivers/*/*stm32*
@@ -1494,13 +1501,13 @@ VFS:
     labels:
         - "area: File System"
 
-
 West:
     status: maintained
     maintainers:
         - mbolivar-nordic
     collaborators:
         - carlescufi
+        - swinslow
     files:
         - scripts/west-commands.yml
         - scripts/west_commands/

@@ -147,6 +147,10 @@ do {                                                                    \
 #define __GENERIC_SECTION(segment) __attribute__((section(STRINGIFY(segment))))
 #define Z_GENERIC_SECTION(segment) __GENERIC_SECTION(segment)
 
+#define __GENERIC_DOT_SECTION(segment) \
+	__attribute__((section("." STRINGIFY(segment))))
+#define Z_GENERIC_DOT_SECTION(segment) __GENERIC_DOT_SECTION(segment)
+
 #define ___in_section(a, b, c) \
 	__attribute__((section("." Z_STRINGIFY(a)			\
 				"." Z_STRINGIFY(b)			\
@@ -189,6 +193,9 @@ do {                                                                    \
 #define __used		__attribute__((__used__))
 #ifndef __deprecated
 #define __deprecated	__attribute__((deprecated))
+#endif
+#ifndef __attribute_const__
+#define __attribute_const__ __attribute__((__const__))
 #endif
 #define ARG_UNUSED(x) (void)(x)
 
@@ -358,7 +365,7 @@ do {                                                                    \
 	section_subsec_func sect, subsec, sym
 #else /* !CONFIG_ARC */
 
-#define SECTION_VAR(sect, sym)  .section .sect.##sym; sym :
+#define SECTION_VAR(sect, sym)  .section .sect.sym; sym:
 #define SECTION_FUNC(sect, sym)						\
 	.section .sect.sym, "ax";					\
 				FUNC_CODE()				\

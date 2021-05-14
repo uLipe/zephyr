@@ -52,10 +52,10 @@
 static void ticker_op_stop_adv_cb(uint32_t status, void *param);
 static void ticker_op_cb(uint32_t status, void *param);
 static void ticker_update_latency_cancel_op_cb(uint32_t ticker_status,
-					       void *params);
+					       void *param);
 
-void ull_slave_setup(memq_link_t *link, struct node_rx_hdr *rx,
-		     struct node_rx_ftr *ftr, struct lll_conn *lll)
+void ull_slave_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
+		     struct lll_conn *lll)
 {
 	uint32_t conn_offset_us, conn_interval_us;
 	uint8_t ticker_id_adv, ticker_id_conn;
@@ -72,6 +72,7 @@ void ull_slave_setup(memq_link_t *link, struct node_rx_hdr *rx,
 	struct node_rx_cc *cc;
 	struct ll_conn *conn;
 	uint16_t win_offset;
+	memq_link_t *link;
 	uint16_t timeout;
 	uint8_t chan_sel;
 
@@ -98,6 +99,11 @@ void ull_slave_setup(memq_link_t *link, struct node_rx_hdr *rx,
 #endif /* CONFIG_BT_CTLR_PRIVACY */
 		memcpy(peer_id_addr, peer_addr, BDADDR_SIZE);
 	}
+
+	/* Use the link stored in the node rx to enqueue connection
+	 * complete node rx towards LL context.
+	 */
+	link = rx->link;
 
 #if defined(CONFIG_BT_CTLR_CHECK_SAME_PEER_CONN)
 	uint8_t own_addr_type = pdu_adv->rx_addr;
@@ -169,10 +175,14 @@ void ull_slave_setup(memq_link_t *link, struct node_rx_hdr *rx,
 	win_offset = sys_le16_to_cpu(pdu_adv->connect_ind.win_offset);
 	conn_interval_us = lll->interval * CONN_INT_UNIT_US;
 
+	/* transmitWindowDelay to default calculated connection offset:
+	 * 1.25ms for a legacy PDU, 2.5ms for an LE Uncoded PHY and 3.75ms for
+	 * an LE Coded PHY.
+	 */
 	if (0) {
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 	} else if (adv->lll.aux) {
-		if (adv->lll.phy_s & BIT(2)) {
+		if (adv->lll.phy_s & PHY_CODED) {
 			win_delay_us = WIN_DELAY_CODED;
 		} else {
 			win_delay_us = WIN_DELAY_UNCODED;
@@ -328,18 +338,18 @@ void ull_slave_setup(memq_link_t *link, struct node_rx_hdr *rx,
 #endif
 
 	/* TODO: active_to_start feature port */
-	conn->evt.ticks_active_to_start = 0U;
-	conn->evt.ticks_xtal_to_start =
+	conn->ull.ticks_active_to_start = 0U;
+	conn->ull.ticks_prepare_to_start =
 		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_XTAL_US);
-	conn->evt.ticks_preempt_to_start =
+	conn->ull.ticks_preempt_to_start =
 		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_PREEMPT_MIN_US);
-	conn->evt.ticks_slot =
+	conn->ull.ticks_slot =
 		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US +
 				       ready_delay_us +
 				       328 + EVENT_IFS_US + 328);
 
-	ticks_slot_offset = MAX(conn->evt.ticks_active_to_start,
-				conn->evt.ticks_xtal_to_start);
+	ticks_slot_offset = MAX(conn->ull.ticks_active_to_start,
+				conn->ull.ticks_prepare_to_start);
 
 	if (IS_ENABLED(CONFIG_BT_CTLR_LOW_LAT)) {
 		ticks_slot_overhead = ticks_slot_offset;
@@ -370,7 +380,7 @@ void ull_slave_setup(memq_link_t *link, struct node_rx_hdr *rx,
 	if (lll_aux) {
 		struct ll_adv_aux_set *aux;
 
-		aux = (void *)HDR_LLL2EVT(lll_aux);
+		aux = HDR_LLL2ULL(lll_aux);
 
 		ticker_id_adv = TICKER_ID_ADV_AUX_BASE +
 				ull_adv_aux_handle_get(aux);
@@ -411,7 +421,7 @@ void ull_slave_setup(memq_link_t *link, struct node_rx_hdr *rx,
 				     HAL_TICKER_US_TO_TICKS(conn_interval_us),
 				     HAL_TICKER_REMAINDER(conn_interval_us),
 				     TICKER_NULL_LAZY,
-				     (conn->evt.ticks_slot +
+				     (conn->ull.ticks_slot +
 				      ticks_slot_overhead),
 				     ull_slave_ticker_cb, conn, ticker_op_cb,
 				     (void *)__LINE__);
@@ -447,7 +457,7 @@ void ull_slave_latency_cancel(struct ll_conn *conn, uint16_t handle)
 }
 
 void ull_slave_ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
-			 uint16_t lazy, void *param)
+			 uint16_t lazy, uint8_t force, void *param)
 {
 	static memq_link_t link;
 	static struct mayfly mfy = {0, 0, &link, NULL, lll_slave_prepare};
@@ -480,6 +490,17 @@ void ull_slave_ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
 		/* Handle any LL Control Procedures */
 		ret = ull_conn_llcp(conn, ticks_at_expire, lazy);
 		if (ret) {
+			/* NOTE: Under BT_CTLR_LOW_LAT, ULL_LOW context is
+			 *       disabled inside radio events, hence, abort any
+			 *       active radio event which will re-enable
+			 *       ULL_LOW context that permits ticker job to run.
+			 */
+			if (IS_ENABLED(CONFIG_BT_CTLR_LOW_LAT) &&
+			    (CONFIG_BT_CTLR_LLL_PRIO ==
+			     CONFIG_BT_CTLR_ULL_LOW_PRIO)) {
+				ll_radio_state_abort();
+			}
+
 			DEBUG_RADIO_CLOSE_S(0);
 			return;
 		}
@@ -493,6 +514,7 @@ void ull_slave_ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
 	p.ticks_at_expire = ticks_at_expire;
 	p.remainder = remainder;
 	p.lazy = lazy;
+	p.force = force;
 	p.param = &conn->lll;
 	mfy.param = &p;
 
@@ -571,9 +593,9 @@ static void ticker_op_cb(uint32_t status, void *param)
 }
 
 static void ticker_update_latency_cancel_op_cb(uint32_t ticker_status,
-					       void *params)
+					       void *param)
 {
-	struct ll_conn *conn = params;
+	struct ll_conn *conn = param;
 
 	LL_ASSERT(ticker_status == TICKER_STATUS_SUCCESS);
 

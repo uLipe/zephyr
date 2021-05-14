@@ -241,9 +241,9 @@ static int i2c_stm32_init(const struct device *dev)
 	}
 #endif /* CONFIG_SOC_SERIES_STM32F3X) || CONFIG_SOC_SERIES_STM32F0X */
 
-#if defined(CONFIG_SOC_STM32F103X8) || defined(CONFIG_SOC_STM32F103XB)
+#if defined(CONFIG_SOC_SERIES_STM32F1X)
 	/*
-	 * Force i2c reset for STM32 (F101X8/B, F102X8/B), F103X8/B.
+	 * Force i2c reset for STM32F1 series.
 	 * So that they can enter master mode properly.
 	 * Issue described in ES096 2.14.7
 	 */
@@ -349,7 +349,7 @@ static const struct i2c_stm32_config i2c_stm32_cfg_##name = {		\
 static struct i2c_stm32_data i2c_stm32_dev_data_##name;			\
 									\
 DEVICE_DT_DEFINE(DT_NODELABEL(name), &i2c_stm32_init,			\
-		    device_pm_control_nop, &i2c_stm32_dev_data_##name,	\
+		    NULL, &i2c_stm32_dev_data_##name,			\
 		    &i2c_stm32_cfg_##name,				\
 		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,	\
 		    &api_funcs);					\

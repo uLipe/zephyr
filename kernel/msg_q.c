@@ -12,7 +12,7 @@
 
 #include <kernel.h>
 #include <kernel_structs.h>
-#include <debug/object_tracing_common.h>
+
 #include <toolchain.h>
 #include <linker/sections.h>
 #include <string.h>
@@ -25,26 +25,12 @@
 #include <kernel_internal.h>
 #include <sys/check.h>
 
-#ifdef CONFIG_OBJECT_TRACING
-
-struct k_msgq *_trace_list_k_msgq;
-
-/*
- * Complete initialization of statically defined message queues.
- */
-static int init_msgq_module(const struct device *dev)
+#ifdef CONFIG_POLL
+static inline void handle_poll_events(struct k_msgq *msgq, uint32_t state)
 {
-	ARG_UNUSED(dev);
-
-	Z_STRUCT_SECTION_FOREACH(k_msgq, msgq) {
-		SYS_TRACING_OBJ_INIT(k_msgq, msgq);
-	}
-	return 0;
+	z_handle_obj_poll_events(&msgq->poll_events, state);
 }
-
-SYS_INIT(init_msgq_module, PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_OBJECTS);
-
-#endif /* CONFIG_OBJECT_TRACING */
+#endif /* CONFIG_POLL */
 
 void k_msgq_init(struct k_msgq *msgq, char *buffer, size_t msg_size,
 		 uint32_t max_msgs)
@@ -59,8 +45,11 @@ void k_msgq_init(struct k_msgq *msgq, char *buffer, size_t msg_size,
 	msgq->flags = 0;
 	z_waitq_init(&msgq->wait_q);
 	msgq->lock = (struct k_spinlock) {};
+#ifdef CONFIG_POLL
+	sys_dlist_init(&msgq->poll_events);
+#endif	/* CONFIG_POLL */
 
-	SYS_TRACING_OBJ_INIT(k_msgq, msgq);
+	SYS_PORT_TRACING_OBJ_INIT(k_msgq, msgq);
 
 	z_object_init(msgq);
 }
@@ -71,6 +60,8 @@ int z_impl_k_msgq_alloc_init(struct k_msgq *msgq, size_t msg_size,
 	void *buffer;
 	int ret;
 	size_t total_size;
+
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_msgq, alloc_init, msgq);
 
 	if (size_mul_overflow(msg_size, max_msgs, &total_size)) {
 		ret = -EINVAL;
@@ -84,6 +75,8 @@ int z_impl_k_msgq_alloc_init(struct k_msgq *msgq, size_t msg_size,
 			ret = -ENOMEM;
 		}
 	}
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, alloc_init, msgq, ret);
 
 	return ret;
 }
@@ -101,7 +94,11 @@ int z_vrfy_k_msgq_alloc_init(struct k_msgq *msgq, size_t msg_size,
 
 int k_msgq_cleanup(struct k_msgq *msgq)
 {
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_msgq, cleanup, msgq);
+
 	CHECKIF(z_waitq_head(&msgq->wait_q) != NULL) {
+		SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, cleanup, msgq, -EBUSY);
+
 		return -EBUSY;
 	}
 
@@ -109,6 +106,9 @@ int k_msgq_cleanup(struct k_msgq *msgq)
 		k_free(msgq->buffer_start);
 		msgq->flags &= ~K_MSGQ_FLAG_ALLOC;
 	}
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, cleanup, msgq, 0);
+
 	return 0;
 }
 
@@ -123,10 +123,14 @@ int z_impl_k_msgq_put(struct k_msgq *msgq, const void *data, k_timeout_t timeout
 
 	key = k_spin_lock(&msgq->lock);
 
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_msgq, put, msgq, timeout);
+
 	if (msgq->used_msgs < msgq->max_msgs) {
 		/* message queue isn't full */
 		pending_thread = z_unpend_first_thread(&msgq->wait_q);
 		if (pending_thread != NULL) {
+			SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, put, msgq, timeout, 0);
+
 			/* give message to waiting thread */
 			(void)memcpy(pending_thread->base.swap_data, data,
 			       msgq->msg_size);
@@ -143,16 +147,26 @@ int z_impl_k_msgq_put(struct k_msgq *msgq, const void *data, k_timeout_t timeout
 				msgq->write_ptr = msgq->buffer_start;
 			}
 			msgq->used_msgs++;
+#ifdef CONFIG_POLL
+			handle_poll_events(msgq, K_POLL_STATE_MSGQ_DATA_AVAILABLE);
+#endif /* CONFIG_POLL */
 		}
 		result = 0;
 	} else if (K_TIMEOUT_EQ(timeout, K_NO_WAIT)) {
 		/* don't wait for message space to become available */
 		result = -ENOMSG;
 	} else {
+		SYS_PORT_TRACING_OBJ_FUNC_BLOCKING(k_msgq, put, msgq, timeout);
+
 		/* wait for put message success, failure, or timeout */
 		_current->base.swap_data = (void *) data;
-		return z_pend_curr(&msgq->lock, key, &msgq->wait_q, timeout);
+
+		result = z_pend_curr(&msgq->lock, key, &msgq->wait_q, timeout);
+		SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, put, msgq, timeout, result);
+		return result;
 	}
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, put, msgq, timeout, result);
 
 	k_spin_unlock(&msgq->lock, key);
 
@@ -199,6 +213,8 @@ int z_impl_k_msgq_get(struct k_msgq *msgq, void *data, k_timeout_t timeout)
 
 	key = k_spin_lock(&msgq->lock);
 
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_msgq, get, msgq, timeout);
+
 	if (msgq->used_msgs > 0U) {
 		/* take first available message from queue */
 		(void)memcpy(data, msgq->read_ptr, msgq->msg_size);
@@ -211,6 +227,8 @@ int z_impl_k_msgq_get(struct k_msgq *msgq, void *data, k_timeout_t timeout)
 		/* handle first thread waiting to write (if any) */
 		pending_thread = z_unpend_first_thread(&msgq->wait_q);
 		if (pending_thread != NULL) {
+			SYS_PORT_TRACING_OBJ_FUNC_BLOCKING(k_msgq, get, msgq, timeout);
+
 			/* add thread's message to queue */
 			(void)memcpy(msgq->write_ptr, pending_thread->base.swap_data,
 			       msgq->msg_size);
@@ -224,6 +242,9 @@ int z_impl_k_msgq_get(struct k_msgq *msgq, void *data, k_timeout_t timeout)
 			arch_thread_return_value_set(pending_thread, 0);
 			z_ready_thread(pending_thread);
 			z_reschedule(&msgq->lock, key);
+
+			SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, get, msgq, timeout, 0);
+
 			return 0;
 		}
 		result = 0;
@@ -231,10 +252,17 @@ int z_impl_k_msgq_get(struct k_msgq *msgq, void *data, k_timeout_t timeout)
 		/* don't wait for a message to become available */
 		result = -ENOMSG;
 	} else {
+		SYS_PORT_TRACING_OBJ_FUNC_BLOCKING(k_msgq, get, msgq, timeout);
+
 		/* wait for get message success or timeout */
 		_current->base.swap_data = data;
-		return z_pend_curr(&msgq->lock, key, &msgq->wait_q, timeout);
+
+		result = z_pend_curr(&msgq->lock, key, &msgq->wait_q, timeout);
+		SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, get, msgq, timeout, result);
+		return result;
 	}
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_msgq, get, msgq, timeout, result);
 
 	k_spin_unlock(&msgq->lock, key);
 
@@ -269,6 +297,8 @@ int z_impl_k_msgq_peek(struct k_msgq *msgq, void *data)
 		result = -ENOMSG;
 	}
 
+	SYS_PORT_TRACING_OBJ_FUNC(k_msgq, peek, msgq, result);
+
 	k_spin_unlock(&msgq->lock, key);
 
 	return result;
@@ -291,6 +321,8 @@ void z_impl_k_msgq_purge(struct k_msgq *msgq)
 	struct k_thread *pending_thread;
 
 	key = k_spin_lock(&msgq->lock);
+
+	SYS_PORT_TRACING_OBJ_FUNC(k_msgq, purge, msgq);
 
 	/* wake up any threads that are waiting to write */
 	while ((pending_thread = z_unpend_first_thread(&msgq->wait_q)) != NULL) {

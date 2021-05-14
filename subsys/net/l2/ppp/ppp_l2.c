@@ -21,6 +21,21 @@ LOG_MODULE_REGISTER(net_l2_ppp, CONFIG_NET_L2_PPP_LOG_LEVEL);
 #include "ppp_stats.h"
 #include "ppp_internal.h"
 
+static K_FIFO_DEFINE(tx_queue);
+
+#if IS_ENABLED(CONFIG_NET_TC_THREAD_COOPERATIVE)
+/* Lowest priority cooperative thread */
+#define THREAD_PRIORITY K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)
+#else
+#define THREAD_PRIORITY K_PRIO_PREEMPT(CONFIG_NUM_PREEMPT_PRIORITIES - 1)
+#endif
+
+static void tx_handler(void);
+
+static K_THREAD_DEFINE(tx_handler_thread, CONFIG_NET_L2_PPP_TX_STACK_SIZE,
+		       (k_thread_entry_t)tx_handler, NULL, NULL, NULL,
+		       THREAD_PRIORITY, 0, 0);
+
 static const struct ppp_protocol_handler *ppp_lcp;
 
 static void ppp_update_rx_stats(struct net_if *iface,
@@ -429,6 +444,33 @@ bail_out:
 	}
 }
 
+void ppp_queue_pkt(struct net_pkt *pkt)
+{
+	k_fifo_put(&tx_queue, pkt);
+}
+
+static void tx_handler(void)
+{
+	struct net_pkt *pkt;
+	int ret;
+
+	NET_DBG("PPP TX started");
+
+	k_thread_name_set(NULL, "ppp_tx");
+
+	while (1) {
+		pkt = k_fifo_get(&tx_queue, K_FOREVER);
+		if (pkt == NULL) {
+			continue;
+		}
+
+		ret = net_send_data(pkt);
+		if (ret < 0) {
+			net_pkt_unref(pkt);
+		}
+	}
+}
+
 void net_ppp_init(struct net_if *iface)
 {
 	struct ppp_context *ctx = net_if_l2_data(iface);
@@ -451,10 +493,10 @@ void net_ppp_init(struct net_if *iface)
 	 * system. The issue is not very likely as typically there
 	 * would be only one PPP network interface in the system.
 	 */
-	k_delayed_work_init(&ctx->startup, ppp_startup);
+	k_work_init_delayable(&ctx->startup, ppp_startup);
 
 	ctx->is_startup_pending = true;
 
-	k_delayed_work_submit(&ctx->startup,
-			      K_MSEC(CONFIG_NET_L2_PPP_DELAY_STARTUP_MS));
+	k_work_reschedule(&ctx->startup,
+			  K_MSEC(CONFIG_NET_L2_PPP_DELAY_STARTUP_MS));
 }

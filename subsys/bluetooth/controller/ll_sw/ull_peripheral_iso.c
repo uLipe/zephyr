@@ -8,31 +8,33 @@
 #include <bluetooth/buf.h>
 #include <sys/byteorder.h>
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME bt_ctlr_ull_peripheral_iso
-#include "common/log.h"
-#include "hal/debug.h"
-
 #include "util/memq.h"
-#include "ticker/ticker.h"
-
-#include "conn_internal.h"
-#include "hal/ticker.h"
 #include "util/mayfly.h"
 
-#include "pdu.h"
-#include "lll.h"
 #include "hal/ccm.h"
+#include "hal/ticker.h"
+
+#include "ticker/ticker.h"
+
+#include "pdu.h"
+
+#include "lll.h"
+#include "lll/lll_vendor.h"
 #include "lll_conn.h"
 #include "lll_conn_iso.h"
+
 #include "ull_conn_types.h"
 #include "ull_conn_internal.h"
 #include "ull_conn_iso_types.h"
 #include "ull_conn_iso_internal.h"
 #include "ull_internal.h"
 
-#include "lll_vendor.h"
 #include "lll_peripheral_iso.h"
+
+#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
+#define LOG_MODULE_NAME bt_ctlr_ull_peripheral_iso
+#include "common/log.h"
+#include "hal/debug.h"
 
 uint8_t ll_cis_accept(uint16_t handle)
 {
@@ -126,7 +128,9 @@ uint8_t ull_peripheral_iso_acquire(struct ll_conn *acl,
 		return BT_HCI_ERR_INSUFFICIENT_RESOURCES;
 	}
 
-	cig->iso_interval = sys_le16_to_cpu(req->iso_interval);
+	cig->iso_interval   = sys_le16_to_cpu(req->iso_interval);
+	cig->c_sdu_interval = sys_get_le24(req->c_sdu_interval);
+	cig->p_sdu_interval = sys_get_le24(req->p_sdu_interval);
 
 	cis->cis_id = req->cis_id;
 	cis->established = 0;
@@ -198,7 +202,7 @@ uint8_t ull_peripheral_iso_setup(struct pdu_data_llctrl_cis_ind *ind,
 }
 
 static void ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
-		      uint16_t lazy, void *param)
+		      uint16_t lazy, uint8_t force, void *param)
 {
 	static memq_link_t link;
 	static struct mayfly mfy = { 0, 0, &link, NULL,

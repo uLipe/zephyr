@@ -294,8 +294,14 @@ static void spi_stm32_shift_m(SPI_TypeDef *spi, struct spi_stm32_data *data)
 		spi_context_update_tx(&data->ctx, 2, 1);
 	}
 
-	while (!ll_func_rx_is_not_empty(spi)) {
-		/* NOP */
+	if (data->ctx.rx_buf) {
+		while (!ll_func_rx_is_not_empty(spi)) {
+			/* NOP */
+		}
+	} else {
+		while (!ll_func_tx_is_empty(spi)) {
+			/* NOP */
+		}
 	}
 
 	if (SPI_WORD_SIZE_GET(data->ctx.config->operation) == 8) {
@@ -931,7 +937,7 @@ static struct spi_stm32_data spi_stm32_dev_data_##id = {		\
 	SPI_DMA_STATUS_SEM(id)						\
 };									\
 									\
-DEVICE_DT_INST_DEFINE(id, &spi_stm32_init, device_pm_control_nop,	\
+DEVICE_DT_INST_DEFINE(id, &spi_stm32_init, NULL,			\
 		    &spi_stm32_dev_data_##id, &spi_stm32_cfg_##id,	\
 		    POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,		\
 		    &api_funcs);					\

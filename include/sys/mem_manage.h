@@ -79,6 +79,46 @@
 #include <inttypes.h>
 #include <sys/__assert.h>
 
+struct k_mem_paging_stats_t {
+#ifdef CONFIG_DEMAND_PAGING_STATS
+	struct {
+		/** Number of page faults */
+		unsigned long			cnt;
+
+		/** Number of page faults with IRQ locked */
+		unsigned long			irq_locked;
+
+		/** Number of page faults with IRQ unlocked */
+		unsigned long			irq_unlocked;
+
+#ifndef CONFIG_DEMAND_PAGING_ALLOW_IRQ
+		/** Number of page faults while in ISR */
+		unsigned long			in_isr;
+#endif
+	} pagefaults;
+
+	struct {
+		/** Number of clean pages selected for eviction */
+		unsigned long			clean;
+
+		/** Number of dirty pages selected for eviction */
+		unsigned long			dirty;
+	} eviction;
+#endif /* CONFIG_DEMAND_PAGING_STATS */
+};
+
+struct k_mem_paging_histogram_t {
+#ifdef CONFIG_DEMAND_PAGING_TIMING_HISTOGRAM
+	/* Counts for each bin in timing histogram */
+	unsigned long	counts[CONFIG_DEMAND_PAGING_TIMING_HISTOGRAM_NUM_BINS];
+
+	/* Bounds for the bins in timing histogram,
+	 * excluding the first and last (hence, NUM_SLOTS - 1).
+	 */
+	unsigned long	bounds[CONFIG_DEMAND_PAGING_TIMING_HISTOGRAM_NUM_BINS];
+#endif /* CONFIG_DEMAND_PAGING_TIMING_HISTOGRAM */
+};
+
 /* Just like Z_MEM_PHYS_ADDR() but with type safety and assertions */
 static inline uintptr_t z_mem_phys_addr(void *virt)
 {
@@ -139,8 +179,6 @@ extern "C" {
  * Portable code should never assume that phys_addr and linear_addr will
  * be equal.
  *
- * Once created, mappings are permanent.
- *
  * Caching and access properties are controlled by the 'flags' parameter.
  * Unused bits in 'flags' are reserved for future expansion.
  * A caching mode must be selected. By default, the region is read-only
@@ -169,6 +207,35 @@ extern "C" {
  */
 void z_phys_map(uint8_t **virt_ptr, uintptr_t phys, size_t size,
 		uint32_t flags);
+
+/**
+ * Unmap a virtual memory region from kernel's virtual address space.
+ *
+ * This function is intended to be used by drivers and early boot routines
+ * where temporary memory mappings need to be made. This allows these
+ * memory mappings to be discarded once they are no longer needed.
+ *
+ * This function alters the active page tables in the area reserved
+ * for the kernel.
+ *
+ * This will align the input parameters to page boundaries so that
+ * this can be used with the virtual address as returned by
+ * z_phys_map().
+ *
+ * This API is only available if CONFIG_MMU is enabled.
+ *
+ * It is highly discouraged to use this function to unmap memory mappings.
+ * It may conflict with anonymous memory mappings and demand paging and
+ * produce undefined behavior. Do not use this unless you know exactly
+ * what you are doing.
+ *
+ * This API is part of infrastructure still under development and may
+ * change.
+ *
+ * @param virt Starting address of the virtual address region to be unmapped.
+ * @param size Size of the virtual address region
+ */
+void z_phys_unmap(uint8_t *virt, size_t size);
 
 /*
  * k_mem_map() control flags
@@ -211,8 +278,11 @@ void z_phys_map(uint8_t **virt_ptr, uintptr_t phys, size_t size,
  * Zephyr treats page faults on this guard page as a fatal K_ERR_STACK_CHK_FAIL
  * if it determines it immediately precedes a stack buffer, this is
  * implemented in the architecture layer.
+ *
+ * DEPRECATED: k_mem_map() will always allocate guard pages, so this bit
+ * no longer has any effect.
  */
-#define K_MEM_MAP_GUARD		BIT(18)
+#define K_MEM_MAP_GUARD		__DEPRECATED_MACRO BIT(18)
 
 /**
  * Return the amount of free memory available
@@ -253,6 +323,10 @@ size_t k_mem_free_get(void);
  * parameter, and any base address for re-mapping purposes must be page-
  * aligned.
  *
+ * Note that the allocation includes two guard pages immediately before
+ * and after the requested region. The total size of the allocation will be
+ * the requested size plus the size of these two guard pages.
+ *
  * Many K_MEM_MAP_* flags have been implemented to alter the behavior of this
  * function, with details in the documentation for these flags.
  *
@@ -263,6 +337,21 @@ size_t k_mem_free_get(void);
  *         or insufficient memory for paging structures.
  */
 void *k_mem_map(size_t size, uint32_t flags);
+
+/**
+ * Un-map mapped memory
+ *
+ * This removes a memory mapping for the provided page-aligned region.
+ * Associated page frames will be free and the kernel may re-use the associated
+ * virtual address region. Any paged out data pages may be discarded.
+ *
+ * Calling this function on a region which was not mapped to begin with is
+ * undefined behavior.
+ *
+ * @param addr Page-aligned memory region base virtual address
+ * @param size Page-aligned memory region size
+ */
+void k_mem_unmap(void *addr, size_t size);
 
 /**
  * Given an arbitrary region, provide a aligned region that covers it
@@ -348,6 +437,72 @@ void k_mem_pin(void *addr, size_t size);
  */
 void k_mem_unpin(void *addr, size_t size);
 #endif /* CONFIG_DEMAND_PAGING */
+
+#ifdef CONFIG_DEMAND_PAGING_STATS
+/**
+ * Get the paging statistics since system startup
+ *
+ * This populates the paging statistics struct being passed in
+ * as argument.
+ *
+ * @param[in,out] stats Paging statistics struct to be filled.
+ */
+__syscall void k_mem_paging_stats_get(struct k_mem_paging_stats_t *stats);
+
+#ifdef CONFIG_DEMAND_PAGING_THREAD_STATS
+struct k_thread;
+/**
+ * Get the paging statistics since system startup for a thread
+ *
+ * This populates the paging statistics struct being passed in
+ * as argument for a particular thread.
+ *
+ * @param[in] thread Thread
+ * @param[in,out] stats Paging statistics struct to be filled.
+ */
+__syscall
+void k_mem_paging_thread_stats_get(struct k_thread *thread,
+				   struct k_mem_paging_stats_t *stats);
+#endif /* CONFIG_DEMAND_PAGING_THREAD_STATS */
+
+#ifdef CONFIG_DEMAND_PAGING_TIMING_HISTOGRAM
+/**
+ * Get the eviction timing histogram
+ *
+ * This populates the timing histogram struct being passed in
+ * as argument.
+ *
+ * @param[in,out] stats Timing histogram struct to be filled.
+ */
+__syscall void k_mem_paging_histogram_eviction_get(
+	struct k_mem_paging_histogram_t *hist);
+
+/**
+ * Get the backing store page-in timing histogram
+ *
+ * This populates the timing histogram struct being passed in
+ * as argument.
+ *
+ * @param[in,out] stats Timing histogram struct to be filled.
+ */
+__syscall void k_mem_paging_histogram_backing_store_page_in_get(
+	struct k_mem_paging_histogram_t *hist);
+
+/**
+ * Get the backing store page-out timing histogram
+ *
+ * This populates the timing histogram struct being passed in
+ * as argument.
+ *
+ * @param[in,out] stats Timing histogram struct to be filled.
+ */
+__syscall void k_mem_paging_histogram_backing_store_page_out_get(
+	struct k_mem_paging_histogram_t *hist);
+#endif /* CONFIG_DEMAND_PAGING_TIMING_HISTOGRAM */
+
+#include <syscalls/mem_manage.h>
+
+#endif /* CONFIG_DEMAND_PAGING_STATS */
 
 #ifdef __cplusplus
 }

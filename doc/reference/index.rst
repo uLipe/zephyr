@@ -6,8 +6,7 @@ API Reference
 .. toctree::
    :maxdepth: 1
 
-   overview.rst
-   terminology.rst
+   api/index.rst
    audio/index.rst
    misc/notify.rst
    bluetooth/index.rst
@@ -22,7 +21,7 @@ API Reference
    kernel/index.rst
    logging/index.rst
    misc/index
-   misc/data_structures.rst
+   data_structures/index.rst
    modbus/index.rst
    networking/index.rst
    peripherals/index.rst

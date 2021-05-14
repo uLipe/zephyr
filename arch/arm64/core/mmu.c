@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cache.h>
 #include <device.h>
 #include <init.h>
 #include <kernel.h>
@@ -36,9 +37,9 @@ static uint64_t *new_table(void)
 	unsigned int i;
 
 	/* Look for a free table. */
-	for (i = 0; i < CONFIG_MAX_XLAT_TABLES; i++) {
-		if (xlat_use_count[i] == 0) {
-			xlat_use_count[i] = 1;
+	for (i = 0U; i < CONFIG_MAX_XLAT_TABLES; i++) {
+		if (xlat_use_count[i] == 0U) {
+			xlat_use_count[i] = 1U;
 			return &xlat_tables[i * Ln_XLAT_NUM_ENTRIES];
 		}
 	}
@@ -61,8 +62,8 @@ static void free_table(uint64_t *table)
 	unsigned int i = table_index(table);
 
 	MMU_DEBUG("freeing table [%d]%p\n", i, table);
-	__ASSERT(xlat_use_count[i] == 1, "table still in use");
-	xlat_use_count[i] = 0;
+	__ASSERT(xlat_use_count[i] == 1U, "table still in use");
+	xlat_use_count[i] = 0U;
 }
 
 /* Adjusts usage count and returns current count. */
@@ -114,7 +115,7 @@ static inline bool is_desc_superset(uint64_t desc1, uint64_t desc2,
 #if DUMP_PTE
 static void debug_show_pte(uint64_t *pte, unsigned int level)
 {
-	MMU_DEBUG("%.*s", level * 2, ". . . ");
+	MMU_DEBUG("%.*s", level * 2U, ". . . ");
 	MMU_DEBUG("[%d]%p: ", table_index(pte), pte);
 
 	if (is_free_desc(*pte)) {
@@ -194,7 +195,7 @@ static uint64_t *expand_to_table(uint64_t *pte, unsigned int level)
 		}
 
 		stride_shift = LEVEL_TO_VA_SIZE_SHIFT(level + 1);
-		for (i = 0; i < Ln_XLAT_NUM_ENTRIES; i++) {
+		for (i = 0U; i < Ln_XLAT_NUM_ENTRIES; i++) {
 			table[i] = desc | (i << stride_shift);
 		}
 		table_usage(table, Ln_XLAT_NUM_ENTRIES);
@@ -221,10 +222,7 @@ static int set_mapping(struct arm_mmu_ptables *ptables,
 	uint64_t level_size;
 	uint64_t *table = ptables->base_xlat_table;
 	unsigned int level = BASE_XLAT_LEVEL;
-	k_spinlock_key_t key;
 	int ret = 0;
-
-	key = k_spin_lock(&xlat_lock);
 
 	while (size) {
 		__ASSERT(level <= XLAT_LAST_LEVEL,
@@ -300,8 +298,6 @@ move_on:
 		table = ptables->base_xlat_table;
 		level = BASE_XLAT_LEVEL;
 	}
-
-	k_spin_unlock(&xlat_lock, key);
 
 	return ret;
 }
@@ -410,13 +406,13 @@ static void discard_table(uint64_t *table, unsigned int level)
 {
 	unsigned int i;
 
-	for (i = 0; Ln_XLAT_NUM_ENTRIES; i++) {
+	for (i = 0U; Ln_XLAT_NUM_ENTRIES; i++) {
 		if (is_table_desc(table[i], level)) {
 			table_usage(pte_desc_table(table[i]), -1);
 			discard_table(pte_desc_table(table[i]), level + 1);
 		}
 		if (!is_free_desc(table[i])) {
-			table[i] = 0;
+			table[i] = 0U;
 			table_usage(table, -1);
 		}
 	}
@@ -515,7 +511,7 @@ static int globalize_page_range(struct arm_mmu_ptables *dst_pt,
 static uint64_t get_region_desc(uint32_t attrs)
 {
 	unsigned int mem_type;
-	uint64_t desc = 0;
+	uint64_t desc = 0U;
 
 	/* NS bit for security memory access from secure state */
 	desc |= (attrs & MT_NS) ? PTE_BLOCK_DESC_NS : 0;
@@ -578,8 +574,8 @@ static uint64_t get_region_desc(uint32_t attrs)
 	return desc;
 }
 
-static int add_map(struct arm_mmu_ptables *ptables, const char *name,
-		   uintptr_t phys, uintptr_t virt, size_t size, uint32_t attrs)
+static int __add_map(struct arm_mmu_ptables *ptables, const char *name,
+		     uintptr_t phys, uintptr_t virt, size_t size, uint32_t attrs)
 {
 	uint64_t desc = get_region_desc(attrs);
 	bool may_overwrite = !(attrs & MT_NO_OVERWRITE);
@@ -592,13 +588,32 @@ static int add_map(struct arm_mmu_ptables *ptables, const char *name,
 	return set_mapping(ptables, virt, size, desc, may_overwrite);
 }
 
+static int add_map(struct arm_mmu_ptables *ptables, const char *name,
+		   uintptr_t phys, uintptr_t virt, size_t size, uint32_t attrs)
+{
+	k_spinlock_key_t key;
+	int ret;
+
+	key = k_spin_lock(&xlat_lock);
+	ret = __add_map(ptables, name, phys, virt, size, attrs);
+	k_spin_unlock(&xlat_lock, key);
+	return ret;
+}
+
 static int remove_map(struct arm_mmu_ptables *ptables, const char *name,
 		      uintptr_t virt, size_t size)
 {
+	k_spinlock_key_t key;
+	int ret;
+
 	MMU_DEBUG("unmmap [%s]: virt %lx size %lx\n", name, virt, size);
 	__ASSERT(((virt | size) & (CONFIG_MMU_PAGE_SIZE - 1)) == 0,
 		 "address/size are not page aligned\n");
-	return set_mapping(ptables, virt, size, 0, true);
+
+	key = k_spin_lock(&xlat_lock);
+	ret = set_mapping(ptables, virt, size, 0, true);
+	k_spin_unlock(&xlat_lock, key);
+	return ret;
 }
 
 static void invalidate_tlb_all(void)
@@ -649,8 +664,9 @@ static inline void add_arm_mmu_flat_range(struct arm_mmu_ptables *ptables,
 	size_t size = (uintptr_t)range->end - address;
 
 	if (size) {
-		add_map(ptables, range->name, address, address,
-			size, range->attrs | extra_flags);
+		/* MMU not yet active: must use unlocked version */
+		__add_map(ptables, range->name, address, address,
+			  size, range->attrs | extra_flags);
 	}
 }
 
@@ -659,8 +675,9 @@ static inline void add_arm_mmu_region(struct arm_mmu_ptables *ptables,
 				      uint32_t extra_flags)
 {
 	if (region->size || region->attrs) {
-		add_map(ptables, region->name, region->base_pa, region->base_va,
-			region->size, region->attrs | extra_flags);
+		/* MMU not yet active: must use unlocked version */
+		__add_map(ptables, region->name, region->base_pa, region->base_va,
+			  region->size, region->attrs | extra_flags);
 	}
 }
 
@@ -672,10 +689,10 @@ static void setup_page_tables(struct arm_mmu_ptables *ptables)
 	uintptr_t max_va = 0, max_pa = 0;
 
 	MMU_DEBUG("xlat tables:\n");
-	for (index = 0; index < CONFIG_MAX_XLAT_TABLES; index++)
+	for (index = 0U; index < CONFIG_MAX_XLAT_TABLES; index++)
 		MMU_DEBUG("%d: %p\n", index, xlat_tables + index * Ln_XLAT_NUM_ENTRIES);
 
-	for (index = 0; index < mmu_config.num_regions; index++) {
+	for (index = 0U; index < mmu_config.num_regions; index++) {
 		region = &mmu_config.mmu_regions[index];
 		max_va = MAX(max_va, region->base_va + region->size);
 		max_pa = MAX(max_pa, region->base_pa + region->size);
@@ -687,7 +704,7 @@ static void setup_page_tables(struct arm_mmu_ptables *ptables)
 		 "Maximum PA not supported\n");
 
 	/* setup translation table for zephyr execution regions */
-	for (index = 0; index < ARRAY_SIZE(mmu_zephyr_ranges); index++) {
+	for (index = 0U; index < ARRAY_SIZE(mmu_zephyr_ranges); index++) {
 		range = &mmu_zephyr_ranges[index];
 		add_arm_mmu_flat_range(ptables, range, 0);
 	}
@@ -696,7 +713,7 @@ static void setup_page_tables(struct arm_mmu_ptables *ptables)
 	 * Create translation tables for user provided platform regions.
 	 * Those must not conflict with our default mapping.
 	 */
-	for (index = 0; index < mmu_config.num_regions; index++) {
+	for (index = 0U; index < mmu_config.num_regions; index++) {
 		region = &mmu_config.mmu_regions[index];
 		add_arm_mmu_region(ptables, region, MT_NO_OVERWRITE);
 	}
@@ -746,6 +763,9 @@ static void enable_mmu_el1(struct arm_mmu_ptables *ptables, unsigned int flags)
 	/* Ensure these changes are seen before MMU is enabled */
 	isb();
 
+	/* Invalidate all data caches before enable them */
+	sys_cache_data_all(K_CACHE_INVD);
+
 	/* Enable the MMU and data cache */
 	val = read_sctlr_el1();
 	write_sctlr_el1(val | SCTLR_M_BIT | SCTLR_C_BIT);
@@ -769,9 +789,9 @@ static sys_slist_t domain_list;
  * This function provides the default configuration mechanism for the Memory
  * Management Unit (MMU).
  */
-void z_arm64_mmu_init(void)
+void z_arm64_mmu_init(bool is_primary_core)
 {
-	unsigned int flags = 0;
+	unsigned int flags = 0U;
 
 	__ASSERT(CONFIG_MMU_PAGE_SIZE == KB(4),
 		 "Only 4K page size is supported\n");
@@ -785,7 +805,7 @@ void z_arm64_mmu_init(void)
 	/*
 	 * Only booting core setup up the page tables.
 	 */
-	if (IS_PRIMARY_CORE()) {
+	if (is_primary_core) {
 		kernel_ptables.base_xlat_table = new_table();
 		setup_page_tables(&kernel_ptables);
 	}
@@ -886,6 +906,27 @@ void arch_mem_unmap(void *addr, size_t size)
 		sync_domains((uintptr_t)addr, size);
 		invalidate_tlb_all();
 	}
+}
+
+int arch_page_phys_get(void *virt, uintptr_t *phys)
+{
+	uint64_t par;
+	int key;
+
+	key = arch_irq_lock();
+	__asm__ volatile ("at S1E1R, %0" : : "r" (virt));
+	isb();
+	par = read_sysreg(PAR_EL1);
+	arch_irq_unlock(key);
+
+	if (par & BIT(0)) {
+		return -EFAULT;
+	}
+
+	if (phys) {
+		*phys = par & GENMASK(47, 12);
+	}
+	return 0;
 }
 
 #ifdef CONFIG_USERSPACE
@@ -996,7 +1037,7 @@ void arch_mem_domain_thread_add(struct k_thread *thread)
 	} else {
 #ifdef CONFIG_SMP
 		/* the thread could be running on another CPU right now */
-		arch_sched_ipi();
+		z_arm64_ptable_ipi();
 #endif
 	}
 

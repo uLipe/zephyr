@@ -716,9 +716,9 @@ static int ppp_driver_init(const struct device *dev)
 	ring_buf_init(&ppp->rx_ringbuf, sizeof(ppp->rx_buf), ppp->rx_buf);
 	k_work_init(&ppp->cb_work, ppp_isr_cb_work);
 
-	k_work_q_start(&ppp->cb_workq, ppp_workq,
-		       K_KERNEL_STACK_SIZEOF(ppp_workq),
-		       K_PRIO_COOP(PPP_WORKQ_PRIORITY));
+	k_work_queue_start(&ppp->cb_workq, ppp_workq,
+			   K_KERNEL_STACK_SIZEOF(ppp_workq),
+			   K_PRIO_COOP(PPP_WORKQ_PRIORITY), NULL);
 	k_thread_name_set(&ppp->cb_workq.thread, "ppp_workq");
 #endif
 
@@ -914,6 +914,6 @@ static const struct ppp_api ppp_if_api = {
 };
 
 NET_DEVICE_INIT(ppp, CONFIG_NET_PPP_DRV_NAME, ppp_driver_init,
-		device_pm_control_nop, &ppp_driver_context_data, NULL,
+		NULL, &ppp_driver_context_data, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &ppp_if_api,
 		PPP_L2, NET_L2_GET_CTX_TYPE(PPP_L2), PPP_MTU);

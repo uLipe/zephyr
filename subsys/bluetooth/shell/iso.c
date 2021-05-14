@@ -34,9 +34,9 @@ static void iso_connected(struct bt_iso_chan *chan)
 	printk("ISO Channel %p connected\n", chan);
 }
 
-static void iso_disconnected(struct bt_iso_chan *chan)
+static void iso_disconnected(struct bt_iso_chan *chan, uint8_t reason)
 {
-	printk("ISO Channel %p disconnected\n", chan);
+	printk("ISO Channel %p disconnected with reason 0x%02x\n", chan, reason);
 }
 
 static struct bt_iso_chan_ops iso_ops = {
@@ -327,7 +327,7 @@ static int cmd_broadcast(const struct shell *shell, size_t argc, char *argv[])
 
 	while (count--) {
 		for (int i = 0; i < BIS_ISO_CHAN_COUNT; i++) {
-			buf = net_buf_alloc(&tx_pool, K_FOREVER);
+			buf = net_buf_alloc(&bis_tx_pool, K_FOREVER);
 			net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
 
 			net_buf_add_mem(buf, buf_data, len);

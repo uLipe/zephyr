@@ -329,7 +329,7 @@ harness: <string>
     simple as a loopback wiring or a complete hardware test setup for
     sensor and IO testing.
     Usually pertains to external dependency domains but can be anything such as
-    console, sensor, net, keyboard, or Bluetooth.
+    console, sensor, net, keyboard, Bluetooth or pytest.
 
 harness_config: <harness configuration options>
     Extra harness configuration options to be used to select a board and/or
@@ -369,6 +369,11 @@ harness_config: <harness configuration options>
 
         Only one fixture can be defined per testcase.
 
+    pytest_root: <pytest dirctory> (default pytest)
+        Specify a pytest directory which need to excute when test case begin to running,
+        default pytest directory name is pytest, after pytest finished, twister will
+        check if this case pass or fail according the pytest report.
+
     The following is an example yaml file with a few harness_config options.
 
     ::
@@ -389,6 +394,18 @@ harness_config: <harness configuration options>
            test:
              tags: sensors
              depends_on: i2c
+
+    The following is an example yaml file with pytest harness_config options,
+    default pytest_root name "pytest" will be used if pytest_root not specified.
+    please refer the example in samples/subsys/testsuite/pytest/.
+
+    ::
+
+        tests:
+          pytest.example:
+            harness: pytest
+            harness_config:
+              pytest_root: [pytest directory name]
 
 filter: <expression>
     Filter whether the testcase should be run by evaluating an expression
@@ -634,3 +651,40 @@ using an external J-Link probe.  The "probe_id" keyword overrides the
       product: DAPLink CMSIS-DAP
       runner: jlink
       serial: null
+
+Quarantine
+++++++++++
+
+Twister allows using user-defined yaml files defining the list of tests to be put
+under quarantine. Such tests will be skipped and marked accordingly in the output
+reports. This feature is especially useful when running larger test suits, where
+a failure of one test can affect the execution of other tests (e.g. putting the
+physical board in a corrupted state).
+
+To use the quarantine feature one has to add the argument
+``--quarantine-list <PATH_TO_QUARANTINE_YAML>`` to a twister call.
+The current status of tests on the quarantine list can also be verified by adding
+``--quarantine-verify`` to the above argument. This will make twister skip all tests
+which are not on the given list.
+
+A quarantine yaml has to be a sequence of dictionaries. Each dictionary has to have
+"scenarios" and "platforms" entries listing combinations of scenarios and platforms
+to put under quarantine. In addition, an optional entry "comment" can be used, where
+some more details can be given (e.g. link to a reported issue). These comments will also
+be added to the output reports.
+
+An example of entries in a quarantine yaml::
+
+    - scenarios:
+        - sample.basic.helloworld
+      platforms:
+        - all
+      comment: "Link to the issue: https://github.com/zephyrproject-rtos/zephyr/pull/33287"
+
+    - scenarios:
+        - kernel.common
+        - kernel.common.misra
+        - kernel.common.nano64
+      platforms:
+        - qemu_cortex_m3
+        - native_posix

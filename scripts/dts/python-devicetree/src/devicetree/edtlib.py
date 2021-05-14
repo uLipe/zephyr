@@ -2,7 +2,7 @@
 # Copyright (c) 2019 Linaro Limited
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Tip: You can view just the documentation with 'pydoc3 edtlib'
+# Tip: You can view just the documentation with 'pydoc3 devicetree.edtlib'
 
 """
 Library for working with devicetrees at a higher level compared to dtlib. Like
@@ -25,7 +25,7 @@ See their constructor docstrings for details. There is also a
 bindings_from_paths() helper function.
 """
 
-# NOTE: testedtlib.py is the test suite for this library.
+# NOTE: tests/test_edtlib.py is the test suite for this library.
 
 # Implementation notes
 # --------------------
@@ -68,6 +68,7 @@ bindings_from_paths() helper function.
 #   variables. See the existing @properties for a template.
 
 from collections import OrderedDict, defaultdict
+from copy import deepcopy
 import logging
 import os
 import re
@@ -78,12 +79,9 @@ try:
     # This makes e.g. gen_defines.py more than twice as fast.
     from yaml import CLoader as Loader
 except ImportError:
-    from yaml import Loader
+    from yaml import Loader     # type: ignore
 
-from devicetree.dtlib import \
-    DT, DTError, to_num, to_nums, TYPE_EMPTY, TYPE_BYTES, \
-    TYPE_NUM, TYPE_NUMS, TYPE_STRING, TYPE_STRINGS, \
-    TYPE_PHANDLE, TYPE_PHANDLES, TYPE_PHANDLES_AND_NUMS
+from devicetree.dtlib import DT, DTError, to_num, to_nums, Type
 from devicetree.grutils import Graph
 
 
@@ -822,26 +820,29 @@ class Node:
         }
         for name, prop in self._node.props.items():
             pp = OrderedDict()
-            if prop.type == TYPE_EMPTY:
+            if prop.type == Type.EMPTY:
                 pp["type"] = "boolean"
-            elif prop.type == TYPE_BYTES:
+            elif prop.type == Type.BYTES:
                 pp["type"] = "uint8-array"
-            elif prop.type == TYPE_NUM:
+            elif prop.type == Type.NUM:
                 pp["type"] = "int"
-            elif prop.type == TYPE_NUMS:
+            elif prop.type == Type.NUMS:
                 pp["type"] = "array"
-            elif prop.type == TYPE_STRING:
+            elif prop.type == Type.STRING:
                 pp["type"] = "string"
-            elif prop.type == TYPE_STRINGS:
+            elif prop.type == Type.STRINGS:
                 pp["type"] = "string-array"
-            elif prop.type == TYPE_PHANDLE:
+            elif prop.type == Type.PHANDLE:
                 pp["type"] = "phandle"
-            elif prop.type == TYPE_PHANDLES:
+            elif prop.type == Type.PHANDLES:
                 pp["type"] = "phandles"
-            elif prop.type == TYPE_PHANDLES_AND_NUMS:
+            elif prop.type == Type.PHANDLES_AND_NUMS:
                 pp["type"] = "phandle-array"
+            elif prop.type == Type.PATH:
+                pp["type"] = "path"
             else:
-                _err(f"cannot infer binding from property: {prop}")
+                _err(f"cannot infer binding from property: {prop} "
+                     f"with type {prop.type!r}")
             raw['properties'][name] = pp
 
         # Set up Node state.
@@ -1006,7 +1007,7 @@ class Node:
             return False if prop_type == "boolean" else None
 
         if prop_type == "boolean":
-            if prop.type is not TYPE_EMPTY:
+            if prop.type != Type.EMPTY:
                 _err("'{0}' in {1!r} is defined with 'type: boolean' in {2}, "
                      "but is assigned a value ('{3}') instead of being empty "
                      "('{0};')".format(name, node, self.binding_path, prop))
@@ -1037,7 +1038,7 @@ class Node:
             # This type is a bit high-level for dtlib as it involves
             # information from bindings and *-names properties, so there's no
             # to_phandle_array() in dtlib. Do the type check ourselves.
-            if prop.type not in (TYPE_PHANDLE, TYPE_PHANDLES, TYPE_PHANDLES_AND_NUMS):
+            if prop.type not in (Type.PHANDLE, Type.PHANDLES, Type.PHANDLES_AND_NUMS):
                 _err(f"expected property '{name}' in {node.path} in "
                      f"{node.dt.filename} to be assigned "
                      f"with '{name} = < &foo ... &bar 1 ... &baz 2 3 >' "
@@ -1607,26 +1608,51 @@ class Binding:
             return raw
 
         include = raw.pop("include")
-        fnames = []
-        if isinstance(include, str):
-            fnames.append(include)
-        elif isinstance(include, list):
-            if not all(isinstance(elem, str) for elem in include):
-                _err(f"all elements in 'include:' in {binding_path} "
-                     "should be strings")
-            fnames += include
-        else:
-            _err(f"'include:' in {binding_path} "
-                 "should be a string or a list of strings")
 
         # First, merge the included files together. If more than one included
         # file has a 'required:' for a particular property, OR the values
         # together, so that 'required: true' wins.
 
         merged = {}
-        for fname in fnames:
-            _merge_props(merged, self._load_raw(fname), None, binding_path,
-                         check_required=False)
+
+        if isinstance(include, str):
+            # Simple scalar string case
+            _merge_props(merged, self._load_raw(include), None, binding_path,
+                         False)
+        elif isinstance(include, list):
+            # List of strings and maps. These types may be intermixed.
+            for elem in include:
+                if isinstance(elem, str):
+                    _merge_props(merged, self._load_raw(elem), None,
+                                 binding_path, False)
+                elif isinstance(elem, dict):
+                    name = elem.pop('name', None)
+                    allowlist = elem.pop('property-allowlist', None)
+                    blocklist = elem.pop('property-blocklist', None)
+                    child_filter = elem.pop('child-binding', None)
+
+                    if elem:
+                        # We've popped out all the valid keys.
+                        _err(f"'include:' in {binding_path} should not have "
+                             f"these unexpected contents: {elem}")
+
+                    _check_include_dict(name, allowlist, blocklist,
+                                        child_filter, binding_path)
+
+                    contents = self._load_raw(name)
+
+                    _filter_properties(contents, allowlist, blocklist,
+                                       child_filter, binding_path)
+                    _merge_props(merged, contents, None, binding_path, False)
+                else:
+                    _err(f"all elements in 'include:' in {binding_path} "
+                         "should be either strings or maps with a 'name' key "
+                         "and optional 'property-allowlist' or "
+                         f"'property-blocklist' keys, but got: {elem}")
+        else:
+            # Invalid item.
+            _err(f"'include:' in {binding_path} "
+                 f"should be a string or list, but has type {type(include)}")
 
         # Next, merge the merged included files into 'raw'. Error out if
         # 'raw' has 'required: false' while the merged included files have
@@ -1950,6 +1976,89 @@ def _binding_inc_error(msg):
     # Helper for reporting errors in the !include implementation
 
     raise yaml.constructor.ConstructorError(None, None, "error: " + msg)
+
+
+def _check_include_dict(name, allowlist, blocklist, child_filter,
+                        binding_path):
+    # Check that an 'include:' named 'name' with property-allowlist
+    # 'allowlist', property-blocklist 'blocklist', and
+    # child-binding filter 'child_filter' has valid structure.
+
+    if name is None:
+        _err(f"'include:' element in {binding_path} "
+             "should have a 'name' key")
+
+    if allowlist is not None and blocklist is not None:
+        _err(f"'include:' of file '{name}' in {binding_path} "
+             "should not specify both 'property-allowlist:' "
+             "and 'property-blocklist:'")
+
+    while child_filter is not None:
+        child_copy = deepcopy(child_filter)
+        child_allowlist = child_copy.pop('property-allowlist', None)
+        child_blocklist = child_copy.pop('property-blocklist', None)
+        next_child_filter = child_copy.pop('child-binding', None)
+
+        if child_copy:
+            # We've popped out all the valid keys.
+            _err(f"'include:' of file '{name}' in {binding_path} "
+                 "should not have these unexpected contents in a "
+                 f"'child-binding': {child_copy}")
+
+        if child_allowlist is not None and child_blocklist is not None:
+            _err(f"'include:' of file '{name}' in {binding_path} "
+                 "should not specify both 'property-allowlist:' and "
+                 "'property-blocklist:' in a 'child-binding:'")
+
+        child_filter = next_child_filter
+
+
+def _filter_properties(raw, allowlist, blocklist, child_filter,
+                       binding_path):
+    # Destructively modifies 'raw["properties"]' and
+    # 'raw["child-binding"]', if they exist, according to
+    # 'allowlist', 'blocklist', and 'child_filter'.
+
+    props = raw.get('properties')
+    _filter_properties_helper(props, allowlist, blocklist, binding_path)
+
+    child_binding = raw.get('child-binding')
+    while child_filter is not None and child_binding is not None:
+        _filter_properties_helper(child_binding.get('properties'),
+                                  child_filter.get('property-allowlist'),
+                                  child_filter.get('property-blocklist'),
+                                  binding_path)
+        child_filter = child_filter.get('child-binding')
+        child_binding = child_binding.get('child-binding')
+
+
+def _filter_properties_helper(props, allowlist, blocklist, binding_path):
+    if props is None or (allowlist is None and blocklist is None):
+        return
+
+    _check_prop_filter('property-allowlist', allowlist, binding_path)
+    _check_prop_filter('property-blocklist', blocklist, binding_path)
+
+    if allowlist is not None:
+        allowset = set(allowlist)
+        to_del = [prop for prop in props if prop not in allowset]
+    else:
+        blockset = set(blocklist)
+        to_del = [prop for prop in props if prop in blockset]
+
+    for prop in to_del:
+        del props[prop]
+
+
+def _check_prop_filter(name, value, binding_path):
+    # Ensure an include: ... property-allowlist or property-blocklist
+    # is a list.
+
+    if value is None:
+        return
+
+    if not isinstance(value, list):
+        _err(f"'{name}' value {value} in {binding_path} should be a list")
 
 
 def _merge_props(to_dict, from_dict, parent, binding_path, check_required):
@@ -2546,7 +2655,7 @@ def _check_dt(dt):
 
         ranges_prop = node.props.get("ranges")
         if ranges_prop:
-            if ranges_prop.type not in (TYPE_EMPTY, TYPE_NUMS):
+            if ranges_prop.type not in (Type.EMPTY, Type.NUMS):
                 _err("expected 'ranges = < ... >;' in {} in {}, not '{}' "
                      "(see the devicetree specification)"
                      .format(node.path, node.dt.filename, ranges_prop))

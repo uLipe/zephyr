@@ -14,6 +14,8 @@ struct ll_conn_iso_stream {
 	struct lll_conn_iso_stream lll;
 	uint32_t sync_delay;
 	uint8_t  cis_id;
+	struct ll_iso_datapath *datapath_in;
+	struct ll_iso_datapath *datapath_out;
 	uint32_t offset;        /* Offset of CIS from ACL event in us */
 	uint8_t  established;	/* 0 if CIS has not yet been established.
 				 * 1 if CIS has been established and host
@@ -22,7 +24,6 @@ struct ll_conn_iso_stream {
 };
 
 struct ll_conn_iso_group {
-	struct evt_hdr            evt;
 	struct ull_hdr            ull;
 	struct lll_conn_iso_group lll;
 
@@ -35,6 +36,8 @@ struct ll_conn_iso_group {
 				 * (FT_S_To_M) × ISO_Interval +
 				 * SDU_Interval_S_To_M
 				 */
+	uint32_t c_sdu_interval;
+	uint32_t p_sdu_interval;
 	uint16_t iso_interval;
 	uint8_t  cig_id;
 

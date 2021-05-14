@@ -229,7 +229,7 @@ static int do_write(const struct shell *shell, off_t offset, uint8_t *buf,
 static int do_write_unaligned(const struct shell *shell, off_t offset, uint8_t *buf,
 		    size_t len, bool read_back)
 {
-	int ret;
+	int ret = 0;
 	size_t page_size = flash_get_write_block_size(flash_device);
 	size_t size_before = offset % page_size;
 	size_t size_after = page_size - ((size_before + len) % page_size);
@@ -772,4 +772,4 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_flash,
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 
-SHELL_CMD_REGISTER(flash, &sub_flash, "Flash realated commands.", NULL);
+SHELL_CMD_REGISTER(flash, &sub_flash, "Flash related commands.", NULL);

@@ -5,7 +5,7 @@
  */
 
 #include <kernel_internal.h>
-#include "vector_table.h"
+#include "boot.h"
 
 void z_arm64_el2_init(void);
 
@@ -87,6 +87,13 @@ void z_arm64_el3_init(void)
 		SCR_SMD_BIT);		/* Do not trap SMC */
 	write_scr_el3(reg);
 
+#if defined(CONFIG_GIC_V3)
+	reg = read_sysreg(ICC_SRE_EL3);
+	reg = (ICC_SRE_ELx_SRE_BIT |	/* System register interface is used */
+	       ICC_SRE_EL3_EN_BIT);	/* Enables lower Exception level access to ICC_SRE_EL1 */
+	write_sysreg(reg, ICC_SRE_EL3);
+#endif
+
 	z_arm64_el3_plat_init();
 
 	isb();
@@ -142,7 +149,7 @@ void z_arm64_el1_init(void)
 	isb();
 
 	reg = 0U;			/* RES0 */
-	reg |= CPACR_EL1_FPEN_NOTRAP;	/* Do not trap NEON/SIMD/FP */
+	reg |= CPACR_EL1_FPEN_NOTRAP;	/* Do not trap NEON/SIMD/FP initially */
 					/* TODO: CONFIG_FLOAT_*_FORBIDDEN */
 	write_cpacr_el1(reg);
 

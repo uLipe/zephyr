@@ -11,7 +11,7 @@
 #include <drivers/uart.h>
 #include <drivers/clock_control.h>
 #include <kernel.h>
-#include <power/power.h>
+#include <pm/device.h>
 #include <soc.h>
 #include "soc_miwu.h"
 
@@ -34,6 +34,7 @@ struct uart_npcx_config {
 struct uart_npcx_data {
 	/* Baud rate */
 	uint32_t baud_rate;
+	struct miwu_dev_callback uart_rx_cb;
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	uart_irq_callback_user_data_t user_cb;
 	void *user_data;
@@ -54,6 +55,27 @@ struct uart_npcx_data {
 	(struct uart_reg *)(DRV_CONFIG(dev)->uconf.base)
 
 /* UART local functions */
+static int uart_set_npcx_baud_rate(struct uart_reg *const inst, int baud_rate,
+				   int src_clk)
+{
+	/* Fix baud rate to 115200 so far */
+	if (baud_rate  == 115200) {
+		if (src_clk == 15000000) {
+			inst->UPSR = 0x38;
+			inst->UBAUD = 0x01;
+		} else if (src_clk == 20000000) {
+			inst->UPSR = 0x08;
+			inst->UBAUD = 0x0a;
+		} else {
+			return -EINVAL;
+		}
+	} else {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 static int uart_npcx_tx_fifo_ready(const struct device *dev)
 {
@@ -209,6 +231,12 @@ static void uart_npcx_isr(const struct device *dev)
 {
 	struct uart_npcx_data *data = DRV_DATA(dev);
 
+	/* Refresh console expired time if got UART Rx event */
+	if (IS_ENABLED(CONFIG_UART_CONSOLE_INPUT_EXPIRED) &&
+		       uart_npcx_irq_rx_ready(dev)) {
+		npcx_power_console_is_in_use_refresh();
+	}
+
 	if (data->user_cb) {
 		data->user_cb(dev, data->user_data);
 	}
@@ -285,6 +313,15 @@ static int uart_npcx_err_check(const struct device *dev)
 	return err;
 }
 
+static __unused void uart_npcx_rx_wk_isr(const struct device *dev,
+						struct npcx_wui *wui)
+{
+	/* Refresh console expired time if got UART Rx wake-up event */
+	if (IS_ENABLED(CONFIG_UART_CONSOLE_INPUT_EXPIRED)) {
+		npcx_power_console_is_in_use_refresh();
+	}
+}
+
 /* UART driver registration */
 static const struct uart_driver_api uart_npcx_driver_api = {
 	.poll_in = uart_npcx_poll_in,
@@ -311,7 +348,7 @@ static const struct uart_driver_api uart_npcx_driver_api = {
 static int uart_npcx_init(const struct device *dev)
 {
 	const struct uart_npcx_config *const config = DRV_CONFIG(dev);
-	const struct uart_npcx_data *const data = DRV_DATA(dev);
+	struct uart_npcx_data *const data = DRV_DATA(dev);
 	struct uart_reg *const inst = HAL_INSTANCE(dev);
 	const struct device *const clk_dev =
 					device_get_binding(NPCX_CLK_CTRL_NAME);
@@ -336,14 +373,14 @@ static int uart_npcx_init(const struct device *dev)
 		LOG_ERR("Get UART clock rate error %d", ret);
 		return ret;
 	}
-	__ASSERT(uart_rate == 15000000, "Unsupported apb2 clock for UART!");
 
-	/* Fix baud rate to 115200 */
-	if (data->baud_rate  == 115200) {
-		inst->UPSR = 0x38;
-		inst->UBAUD = 0x01;
-	} else
-		return -EINVAL;
+	/* Configure baud rate */
+	ret = uart_set_npcx_baud_rate(inst, data->baud_rate, uart_rate);
+	if (ret < 0) {
+		LOG_ERR("Set baud rate %d with unsupported apb clock %d failed",
+			data->baud_rate, uart_rate);
+		return ret;
+	}
 
 	/*
 	 * 8-N-1, FIFO enabled.  Must be done after setting
@@ -366,17 +403,22 @@ static int uart_npcx_init(const struct device *dev)
 	config->uconf.irq_config_func(dev);
 #endif
 
-#if defined(CONFIG_PM)
-	/*
-	 * Configure the UART wake-up event triggered from a falling edge
-	 * on CR_SIN pin. No need for callback function.
-	 */
-	npcx_miwu_interrupt_configure(&config->uart_rx_wui,
-			NPCX_MIWU_MODE_EDGE, NPCX_MIWU_TRIG_LOW);
+	if (IS_ENABLED(CONFIG_PM)) {
+		/* Initialize a miwu device input and its callback function */
+		npcx_miwu_init_dev_callback(&data->uart_rx_cb,
+					    &config->uart_rx_wui,
+					    uart_npcx_rx_wk_isr, dev);
+		npcx_miwu_manage_dev_callback(&data->uart_rx_cb, true);
+		/*
+		 * Configure the UART wake-up event triggered from a falling
+		 * edge on CR_SIN pin. No need for callback function.
+		 */
+		npcx_miwu_interrupt_configure(&config->uart_rx_wui,
+				NPCX_MIWU_MODE_EDGE, NPCX_MIWU_TRIG_LOW);
 
-	/* Enable irq of interrupt-input module */
-	npcx_miwu_irq_enable(&config->uart_rx_wui);
-#endif
+		/* Enable irq of interrupt-input module */
+		npcx_miwu_irq_enable(&config->uart_rx_wui);
+	}
 
 	/* Configure pin-mux for uart device */
 	npcx_pinctrl_mux_configure(config->alts_list, config->alts_size, 1);
@@ -411,8 +453,8 @@ static inline int uart_npcx_set_power_state(const struct device *dev,
 	struct uart_npcx_data *const data = DRV_DATA(dev);
 
 	/* If next device power state is LOW or SUSPEND power state */
-	if (next_state == DEVICE_PM_LOW_POWER_STATE ||
-	    next_state == DEVICE_PM_SUSPEND_STATE) {
+	if (next_state == PM_DEVICE_STATE_LOW_POWER ||
+	    next_state == PM_DEVICE_STATE_SUSPEND) {
 		/*
 		 * If uart device is busy with transmitting, the driver will
 		 * stay in while loop and wait for the transaction is completed.
@@ -428,23 +470,23 @@ static inline int uart_npcx_set_power_state(const struct device *dev,
 
 /* Implements the device power management control functionality */
 static int uart_npcx_pm_control(const struct device *dev, uint32_t ctrl_command,
-				 void *context, device_pm_cb cb, void *arg)
+				 uint32_t *state, pm_device_cb cb, void *arg)
 {
 	int ret = 0;
 
 	switch (ctrl_command) {
-	case DEVICE_PM_SET_POWER_STATE:
-		ret = uart_npcx_set_power_state(dev, *((uint32_t *)context));
+	case PM_DEVICE_STATE_SET:
+		ret = uart_npcx_set_power_state(dev, *state);
 		break;
-	case DEVICE_PM_GET_POWER_STATE:
-		ret = uart_npcx_get_power_state(dev, (uint32_t *)context);
+	case PM_DEVICE_STATE_GET:
+		ret = uart_npcx_get_power_state(dev, state);
 		break;
 	default:
 		ret = -EINVAL;
 	}
 
 	if (cb != NULL) {
-		cb(dev, ret, context, arg);
+		cb(dev, ret, state, arg);
 	}
 	return ret;
 }

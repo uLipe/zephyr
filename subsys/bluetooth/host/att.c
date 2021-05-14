@@ -87,7 +87,7 @@ struct bt_att_chan {
 	ATOMIC_DEFINE(flags, ATT_NUM_FLAGS);
 	struct bt_att_req	*req;
 	struct k_fifo		tx_queue;
-	struct k_delayed_work	timeout_work;
+	struct k_work_delayable	timeout_work;
 	void (*sent)(struct bt_att_chan *chan);
 	sys_snode_t		node;
 };
@@ -130,6 +130,13 @@ void att_sent(struct bt_conn *conn, void *user_data)
 	}
 }
 
+/* In case of success the ownership of the buffer is transferred to the stack
+ * which takes care of releasing it when it completes transmitting to the
+ * controller.
+ *
+ * In case bt_l2cap_send_cb fails the buffer state and ownership are retained
+ * so the buffer can be safely pushed back to the queue to be processed later.
+ */
 static int chan_send(struct bt_att_chan *chan, struct net_buf *buf,
 		     bt_att_chan_sent_t cb)
 {
@@ -193,6 +200,7 @@ static int chan_send(struct bt_att_chan *chan, struct net_buf *buf,
 			       buf, att_cb(chan->sent),
 			       &chan->chan.chan);
 	if (err) {
+		/* In case of an error has occurred restore the buffer state */
 		net_buf_simple_restore(&buf->b, &state);
 	}
 
@@ -316,7 +324,7 @@ static void chan_req_sent(struct bt_att_chan *chan)
 
 	/* Start timeout work */
 	if (chan->req) {
-		k_delayed_work_submit(&chan->timeout_work, BT_ATT_TIMEOUT);
+		k_work_reschedule(&chan->timeout_work, BT_ATT_TIMEOUT);
 	}
 }
 
@@ -597,7 +605,7 @@ static uint8_t att_handle_rsp(struct bt_att_chan *chan, void *pdu, uint16_t len,
 	       bt_hex(pdu, len));
 
 	/* Cancel timeout if ongoing */
-	k_delayed_work_cancel(&chan->timeout_work);
+	k_work_cancel_delayable(&chan->timeout_work);
 
 	if (!chan->req) {
 		BT_WARN("No pending ATT request");
@@ -2609,7 +2617,7 @@ static void bt_att_connected(struct bt_l2cap_chan *chan)
 		ch->rx.mtu = BT_ATT_DEFAULT_LE_MTU;
 	}
 
-	k_delayed_work_init(&att_chan->timeout_work, att_timeout);
+	k_work_init_delayable(&att_chan->timeout_work, att_timeout);
 }
 
 static void bt_att_disconnected(struct bt_l2cap_chan *chan)
