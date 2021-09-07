@@ -100,8 +100,8 @@ struct k_p4wq_initparam {
 					   n_threads, stack_sz);	\
 	static struct k_thread _p4threads_##name[n_threads];		\
 	static struct k_p4wq name;					\
-	static const Z_STRUCT_SECTION_ITERABLE(k_p4wq_initparam,	\
-					       _init_##name) = {	\
+	static const STRUCT_SECTION_ITERABLE(k_p4wq_initparam,		\
+					     _init_##name) = {		\
 		.num = n_threads,					\
 		.stack_size = stack_sz,					\
 		.threads = _p4threads_##name,				\
@@ -120,14 +120,15 @@ struct k_p4wq_initparam {
  * @param name Symbol name of the struct k_p4wq array that will be defined
  * @param n_threads Number of threads and work queues
  * @param stack_sz Requested stack size of each thread, in bytes
+ * @param flg Flags
  */
 #define K_P4WQ_ARRAY_DEFINE(name, n_threads, stack_sz, flg)		\
 	static K_THREAD_STACK_ARRAY_DEFINE(_p4stacks_##name,		\
 					   n_threads, stack_sz);	\
 	static struct k_thread _p4threads_##name[n_threads];		\
 	static struct k_p4wq name[n_threads];				\
-	static const Z_STRUCT_SECTION_ITERABLE(k_p4wq_initparam,	\
-					       _init_##name) = {	\
+	static const STRUCT_SECTION_ITERABLE(k_p4wq_initparam,		\
+					     _init_##name) = {		\
 		.num = n_threads,					\
 		.stack_size = stack_sz,					\
 		.threads = _p4threads_##name,				\

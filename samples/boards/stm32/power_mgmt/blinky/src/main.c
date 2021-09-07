@@ -8,7 +8,7 @@
 #include <device.h>
 #include <devicetree.h>
 #include <drivers/gpio.h>
-
+#include <sys/printk.h>
 
 #define SLEEP_TIME_MS   2000
 
@@ -21,8 +21,10 @@ void main(void)
 
 	__ASSERT_NO_MSG(device_is_ready(led.port));
 
+	printk("Device ready\n");
+
 	/* Don't let the system power off / low power this device */
-	device_busy_set(led.port);
+	pm_device_busy_set(led.port);
 
 	while (true) {
 		gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);

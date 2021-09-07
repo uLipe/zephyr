@@ -207,7 +207,14 @@ static void run_test_functions(struct unit_test *test)
 }
 
 #ifndef KERNEL
-#include <setjmp.h>
+
+/* Static code analysis tool can raise a violation that the standard header
+ * <setjmp.h> shall not be used.
+ *
+ * setjmp is using in a test code, not in a runtime code, it is acceptable.
+ * It is a deliberate deviation.
+ */
+#include <setjmp.h> /* parasoft-suppress MISRAC2012-RULE_21_4-a MISRAC2012-RULE_21_4-b*/
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
@@ -354,9 +361,12 @@ static int run_test(struct unit_test *test)
 				(k_thread_entry_t) test_cb, (struct unit_test *)test,
 				NULL, NULL, CONFIG_ZTEST_THREAD_PRIORITY,
 				test->thread_options | K_INHERIT_PERMS,
-					K_NO_WAIT);
+					K_FOREVER);
 
-		k_thread_name_set(&ztest_thread, "ztest_thread");
+		if (test->name != NULL) {
+			k_thread_name_set(&ztest_thread, test->name);
+		}
+		k_thread_start(&ztest_thread);
 		k_thread_join(&ztest_thread, K_FOREVER);
 	} else {
 		test_result = 1;

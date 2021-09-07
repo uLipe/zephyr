@@ -26,6 +26,9 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 NET_BUF_POOL_FIXED_DEFINE(data_pool, CHANNELS, DATA_BUF_SIZE, NULL);
 
+static bool authorize_flag;
+static uint8_t req_keysize;
+
 static struct channel {
 	uint8_t chan_id; /* Internal number that identifies L2CAP channel. */
 	struct bt_l2cap_le_chan le;
@@ -309,6 +312,14 @@ static int accept(struct bt_conn *conn, struct bt_l2cap_chan **l2cap_chan)
 		return -ENOMEM;
 	}
 
+	if (bt_conn_enc_key_size(conn) < req_keysize) {
+		req_keysize = 0;
+		return -EPERM;
+	} else if (authorize_flag) {
+		authorize_flag = false;
+		return -EACCES;
+	}
+
 	chan->le.chan.ops = &l2cap_ops;
 	chan->le.rx.mtu = DATA_MTU;
 
@@ -336,11 +347,12 @@ static void listen(uint8_t *data, uint16_t len)
 	server->accept = accept;
 	server->psm = cmd->psm;
 
-	if (server->psm == 0x00F4) {
+	if (cmd->response == L2CAP_CONNECTION_RESPONSE_INSUFF_ENC_KEY) {
 		/* TSPX_psm_encryption_key_size_required */
-		server->sec_level = BT_SECURITY_L4;
-	} else if (server->psm == 0x00F2) {
-		/* TSPX_psm_authentication_required */
+		req_keysize = 16;
+	} else if (cmd->response == L2CAP_CONNECTION_RESPONSE_INSUFF_AUTHOR) {
+		authorize_flag = true;
+	} else if (cmd->response == L2CAP_CONNECTION_RESPONSE_INSUFF_AUTHEN) {
 		server->sec_level = BT_SECURITY_L3;
 	}
 

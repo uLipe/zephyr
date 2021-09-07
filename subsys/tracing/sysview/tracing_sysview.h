@@ -133,6 +133,7 @@ extern "C" {
 #define TID_WORK_SUBMIT (99u + TID_OFFSET)
 #define TID_WORK_SUBMIT_TO_QUEUE (100u + TID_OFFSET)
 #define TID_WORK_QUEUE_UNPLUG (101u + TID_OFFSET)
+#define TID_WORK_QUEUE_INIT (102u + TID_OFFSET)
 
 #define TID_FIFO_INIT (110u + TID_OFFSET)
 #define TID_FIFO_CANCEL_WAIT (111u + TID_OFFSET)
@@ -149,7 +150,12 @@ extern "C" {
 #define TID_LIFO_GET (121u + TID_OFFSET)
 #define TID_LIFO_ALLOC_PUT (122u + TID_OFFSET)
 
-/* latest ID is 123 */
+
+#define TID_PM_SUSPEND (124u + TID_OFFSET)
+#define TID_PM_DEVICE_REQUEST (125u + TID_OFFSET)
+#define TID_PM_DEVICE_ENABLE (126u + TID_OFFSET)
+#define TID_PM_DEVICE_DISABLE (127u + TID_OFFSET)
+/* latest ID is 127 */
 
 void sys_trace_thread_info(struct k_thread *thread);
 
@@ -181,7 +187,7 @@ void sys_trace_thread_info(struct k_thread *thread);
 	SEGGER_SYSVIEW_RecordEndCallU32(TID_THREAD_JOIN, (int32_t)ret)
 
 #define sys_port_trace_k_thread_sleep_enter(timeout)                                               \
-	SEGGER_SYSVIEW_RecordU32(TID_SLEEP, (uint32_t)timeout.ticks)
+	SEGGER_SYSVIEW_RecordU32(TID_SLEEP, (uint32_t)k_ticks_to_ms_floor32(timeout.ticks))
 
 #define sys_port_trace_k_thread_sleep_exit(timeout, ret)                                           \
 	SEGGER_SYSVIEW_RecordEndCallU32(TID_SLEEP, (int32_t)ret)
@@ -228,8 +234,10 @@ void sys_trace_thread_info(struct k_thread *thread);
 
 #define sys_port_trace_k_thread_sched_unlock()
 
-#define sys_port_trace_k_thread_name_set(thread, ret) \
-	SEGGER_SYSVIEW_RecordU32(TID_THREAD_NAME_SET, (uint32_t)(uintptr_t)thread)
+#define sys_port_trace_k_thread_name_set(thread, ret) do { \
+		SEGGER_SYSVIEW_RecordU32(TID_THREAD_NAME_SET, (uint32_t)(uintptr_t)thread); \
+		sys_trace_thread_info(thread);	\
+	} while (0)
 
 #define sys_port_trace_k_thread_switched_out() sys_trace_k_thread_switched_out()
 
@@ -296,6 +304,10 @@ void sys_trace_thread_info(struct k_thread *thread);
 
 #define sys_port_trace_k_work_cancel_sync_exit(work, sync, ret)                                    \
 	SEGGER_SYSVIEW_RecordEndCallU32(TID_WORK_CANCEL_SYNC, (uint32_t)ret)
+
+#define sys_port_trace_k_work_queue_init(queue)             \
+	SEGGER_SYSVIEW_RecordU32(TID_WORK_QUEUE_INIT,       \
+				 (uint32_t)(uintptr_t)queue)
 
 #define sys_port_trace_k_work_queue_start_enter(queue)                                             \
 	SEGGER_SYSVIEW_RecordU32(TID_WORK_QUEUE_START, (uint32_t)(uintptr_t)queue)
@@ -738,6 +750,29 @@ void sys_trace_k_thread_switched_in(void);
 void sys_trace_k_thread_ready(struct k_thread *thread);
 void sys_trace_k_thread_pend(struct k_thread *thread);
 void sys_trace_k_thread_info(struct k_thread *thread);
+
+
+
+#define sys_port_trace_pm_system_suspend_enter(ticks) \
+	SEGGER_SYSVIEW_RecordU32(TID_PM_SUSPEND, (uint32_t)ticks)
+#define sys_port_trace_pm_system_suspend_exit(ticks, ret) \
+	SEGGER_SYSVIEW_RecordEndCallU32(TID_PM_SUSPEND, (uint32_t)ret)
+
+#define sys_port_trace_pm_device_request_enter(dev, target_state) \
+	SEGGER_SYSVIEW_RecordU32x2(TID_PM_DEVICE_REQUEST, (uint32_t)(uintptr_t)dev, target_state)
+#define sys_port_trace_pm_device_request_exit(dev, ret) \
+	SEGGER_SYSVIEW_RecordEndCallU32(TID_PM_DEVICE_REQUEST, (uint32_t)ret)
+
+#define sys_port_trace_pm_device_enable_enter(dev) \
+	SEGGER_SYSVIEW_RecordU32(TID_PM_DEVICE_ENABLE, (uint32_t)(uintptr_t)dev)
+#define sys_port_trace_pm_device_enable_exit(dev) \
+	SEGGER_SYSVIEW_RecordEndCall(TID_PM_DEVICE_ENABLE)
+
+#define sys_port_trace_pm_device_disable_enter(dev) \
+	SEGGER_SYSVIEW_RecordU32(TID_PM_DEVICE_DISABLE, (uint32_t)(uintptr_t)dev)
+#define sys_port_trace_pm_device_disable_exit(dev) \
+	SEGGER_SYSVIEW_RecordEndCall(TID_PM_DEVICE_DISABLE)
+
 
 #ifdef __cplusplus
 }

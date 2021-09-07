@@ -10,7 +10,7 @@ module-str = kernel
 source "subsys/logging/Kconfig.template.log_config"
 
 config MULTITHREADING
-	bool "Multi-threading"
+	bool "Multi-threading" if ARCH_HAS_SINGLE_THREAD_SUPPORT
 	default y
 	help
 	  If disabled, only the main thread is available, so a main() function
@@ -41,10 +41,6 @@ config NUM_COOP_PRIORITIES
 	  This can be set to zero to disable cooperative scheduling. Cooperative
 	  threads always preempt preemptible threads.
 
-	  Each priority requires an extra 8 bytes of RAM. Each set of 32 extra
-	  total priorities require an extra 4 bytes and add one possible
-	  iteration to loops that search for the next thread to run.
-
 	  The total number of priorities is
 
 	   NUM_COOP_PRIORITIES + NUM_PREEMPT_PRIORITIES + 1
@@ -62,10 +58,6 @@ config NUM_PREEMPT_PRIORITIES
 	  to priorities 0 to CONFIG_NUM_PREEMPT_PRIORITIES - 1.
 
 	  This can be set to 0 to disable preemptible scheduling.
-
-	  Each priority requires an extra 8 bytes of RAM. Each set of 32 extra
-	  total priorities require an extra 4 bytes and add one possible
-	  iteration to loops that search for the next thread to run.
 
 	  The total number of priorities is
 
@@ -90,7 +82,11 @@ config PREEMPT_ENABLED
 
 config PRIORITY_CEILING
 	int "Priority inheritance ceiling"
-	default 0
+	default -127
+	help
+	  This defines the minimum priority value (i.e. the logically
+	  highest priority) that a thread will acquire as part of
+	  k_mutex priority inheritance.
 
 config NUM_METAIRQ_PRIORITIES
 	int "Number of very-high priority 'preemptor' threads"
@@ -339,6 +335,7 @@ config THREAD_NAME
 config THREAD_MAX_NAME_LEN
 	int "Max length of a thread name"
 	default 32
+	default 64 if ZTEST
 	range 8 128
 	depends on THREAD_NAME
 	help

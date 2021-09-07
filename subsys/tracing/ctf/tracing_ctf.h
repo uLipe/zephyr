@@ -87,6 +87,7 @@ extern "C" {
 #define sys_port_trace_k_work_cancel_sync_blocking(work, sync)
 #define sys_port_trace_k_work_cancel_sync_exit(work, sync, ret)
 
+#define sys_port_trace_k_work_queue_init(queue)
 #define sys_port_trace_k_work_queue_start_enter(queue)
 #define sys_port_trace_k_work_queue_start_exit(queue)
 #define sys_port_trace_k_work_queue_drain_enter(queue)
@@ -314,6 +315,16 @@ extern "C" {
 
 #define sys_port_trace_syscall_enter() sys_trace_syscall_enter()
 #define sys_port_trace_syscall_exit() sys_trace_syscall_exit()
+
+#define sys_port_trace_pm_system_suspend_enter(ticks)
+#define sys_port_trace_pm_system_suspend_exit(ticks, ret)
+#define sys_port_trace_pm_device_request_enter(dev, target_state)
+#define sys_port_trace_pm_device_request_exit(dev, ret)
+
+#define sys_port_trace_pm_device_enable_enter(dev)
+#define sys_port_trace_pm_device_enable_exit(dev)
+#define sys_port_trace_pm_device_disable_enter(dev)
+#define sys_port_trace_pm_device_disable_exit(dev)
 
 void sys_trace_syscall_enter(void);
 void sys_trace_syscall_exit(void);
