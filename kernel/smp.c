@@ -23,7 +23,6 @@ unsigned int z_smp_global_lock(void)
 	}
 
 	_current->base.global_lock_count++;
-
 	return key;
 }
 
@@ -106,7 +105,6 @@ bool z_smp_cpu_mobile(void)
 {
 	unsigned int k = arch_irq_lock();
 	bool pinned = arch_is_in_isr() || !arch_irq_unlocked(k);
-
 	arch_irq_unlock(k);
 	return !pinned;
 }

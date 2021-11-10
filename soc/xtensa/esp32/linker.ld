@@ -462,6 +462,7 @@ __shell_root_cmds_end = __esp_shell_root_cmds_end;
 
     /* Buffer for system heap should be placed in dram0_0_seg */
     *libkernel.a:mempool.*(.noinit.kheap_buf__system_heap .noinit.*.kheap_buf__system_heap)
+    *libkernel.a:init.*(.noinit  .noinit.*)
 
     *(.dynsbss)
     *(.sbss)
@@ -484,13 +485,27 @@ __shell_root_cmds_end = __esp_shell_root_cmds_end;
   ASSERT(((_bss_end - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)),
           "DRAM segment data does not fit.")
 
+/* SMP does not like of data placed on second DRAM segment
+ * force to the DRAM0
+ * in practice this reduces the overall amount of DRAM.
+ */
+#if CONFIG_SMP
   SECTION_DATA_PROLOGUE(_NOINIT_SECTION_NAME, (NOLOAD),)
   {
     . = ALIGN (8);
     *(.noinit)
-    *(".noinit.*")
+    *(.noinit.*)
+    . = ALIGN (8);
+  } GROUP_LINK_IN(RAMABLE_REGION)
+#else
+  SECTION_DATA_PROLOGUE(_NOINIT_SECTION_NAME, (NOLOAD),)
+  {
+    . = ALIGN (8);
+    *(.noinit)
+    *(.noinit.*)
     . = ALIGN (8);
   } GROUP_LINK_IN(RAMABLE_REGION_1)
+#endif
 
 #ifdef CONFIG_GEN_ISR_TABLES
 #include <linker/intlist.ld>
