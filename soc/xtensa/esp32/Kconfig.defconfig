@@ -22,6 +22,25 @@ config SCHED_IPI_SUPPORTED
 config MP_NUM_CPUS
 	default 2
 
+if WIFI_ESP32
+
+config NET_TC_SKIP_FOR_HIGH_PRIO
+	default y
+
+config SYSTEM_WORKQUEUE_PRIORITY
+	default 4
+
+config NET_TX_DEFAULT_PRIORITY
+	default 5
+
+config NET_RX_DEFAULT_PRIORITY
+	default 4
+
+config NET_TC_RX_COUNT
+	default 0
+
+endif
+
 endif
 
 config MINIMAL_LIBC_OPTIMIZE_STRING_FOR_SIZE

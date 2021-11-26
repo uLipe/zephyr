@@ -205,12 +205,14 @@ choice NET_TC_THREAD_TYPE
 config NET_TC_THREAD_COOPERATIVE
 	bool "Use co-operative TX/RX threads"
 	depends on COOP_ENABLED
+	depends on !SMP
 	help
 	  With co-operative threads, the thread cannot be pre-empted.
 
 config NET_TC_THREAD_PREEMPTIVE
 	bool "Use pre-emptive TX/RX threads [EXPERIMENTAL]"
 	depends on PREEMPT_ENABLED
+	depends on SMP
 	select EXPERIMENTAL
 	help
 	  With pre-emptive threads, the thread can be pre-empted.
