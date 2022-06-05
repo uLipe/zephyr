@@ -21,10 +21,16 @@ manifest:
   remotes:
     - name: upstream
       url-base: https://github.com/zephyrproject-rtos
+    - name: microbuilder
+      url-base: https://github.com/microbuilder
 
   #
   # Please add items below based on alphabetical order
   projects:
+    - name: linaro_step
+      remote: microbuilder
+      path: modules/lib/step
+      revision: main
     - name: canopennode
       revision: 53d3415c14d60f8f4bfca54bfbc5d5a667d7e724
       path: modules/lib/canopennode
