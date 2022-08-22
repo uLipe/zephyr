@@ -1,0 +1,14 @@
+identifier: xilinx_kv260_starter_kit_r5
+name: Xilinx KV260 Starter kit for Cortex-R5
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+  - xtools
+ram: 65536
+flash: 32768
+testing:
+  default: true
+  ignore_tags:
+    - net
+    - bluetooth

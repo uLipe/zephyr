@@ -1,0 +1,9 @@
+&i2c2 {
+	status = "okay";
+
+	board_imu: ism330dhcx@6b {
+		compatible = "st,ism330dhcx";
+		reg = <0x6B>;
+		label = "ISM330DHCX";
+	};
+};
