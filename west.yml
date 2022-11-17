@@ -23,8 +23,6 @@ manifest:
       url-base: https://github.com/zephyrproject-rtos
     - name: babblesim
       url-base: https://github.com/BabbleSim
-
-  group-filter: [-babblesim]
     - name: openamp
       url-base: https://github.com/openamp
 
