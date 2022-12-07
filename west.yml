@@ -25,6 +25,8 @@ manifest:
       url-base: https://github.com/BabbleSim
 
   group-filter: [-babblesim]
+    - name: openamp
+      url-base: https://github.com/openamp
 
   #
   # Please add items below based on alphabetical order
@@ -244,7 +246,8 @@ manifest:
       groups:
         - hal
     - name: libmetal
-      revision: b91611a6f47dd29fb24c46e5621e797557f80ec6
+      remote: openamp
+      revision: virtio-exp
       path: modules/hal/libmetal
       groups:
         - hal
@@ -290,7 +293,8 @@ manifest:
       revision: 7a5b67d9ee66d84e4ef5cb1f56c8f0f3252d5aa2
       path: modules/bsim_hw_models/nrf_hw_models
     - name: open-amp
-      revision: c904a01d4a882bcbb39987e0e2ce5308f49ac7ad
+      remote: openamp
+      revision: virtio-exp
       path: modules/lib/open-amp
     - name: openthread
       revision: f7690fe7e9d638341921808cba6a3e695ec0131e
