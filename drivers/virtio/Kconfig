@@ -13,6 +13,13 @@ config VIRTIO_MMIO
 	help
 	  Enable support for VIRTIO over MMIO
 
+config VIRTIO_MMIO_USE_IVSHMEM
+	bool "Use Inter-VM Shared memory as storage are for VIRTIO-MMIO"
+	depends on IVSHMEM
+	default y if IVSHMEM
+	help
+	  Enable Inter-VM Shared memory as storage are for VIRTIO-MMIO
+
 config VIRTIO_SERIAL
 	bool "Support VIRTIO Console device"
 	select SERIAL_HAS_DRIVER

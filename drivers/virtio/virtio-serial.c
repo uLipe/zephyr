@@ -11,7 +11,7 @@
 #include <zephyr/drivers/uart.h>
 #include <openamp/virtio_serial.h>
 
-#define SERIAL_PRIORITY    PRE_KERNEL_1
+#define SERIAL_PRIORITY    APPLICATION
 #define DT_DRV_COMPAT virtio_serial
 
 #define DEV_CFG(dev) ((struct virtio_serial_config*)(dev->config))
@@ -26,10 +26,12 @@ struct virtio_serial_config {
 static int vtio_serial_poll_in(const struct device *dev, unsigned char *p_char);
 static void vtio_serial_poll_out(const struct device *dev, unsigned char out_char);
 
-struct uart_driver_api virtio_serial_api = {
+static const struct uart_driver_api virtio_serial_api = {
     .poll_in = vtio_serial_poll_in,
     .poll_out = vtio_serial_poll_out,
 };
+
+#if !defined(CONFIG_VIRTIO_MMIO_USE_IVSHMEM)
 
 #define CREATE_VIRTIO_SERIAL_DEVICE(inst) \
     VQ_DECLARE(vq0_##inst, VQIN_SIZE, 4096);\
@@ -55,8 +57,37 @@ struct uart_driver_api virtio_serial_api = {
     &virtio_serial_data_##inst,\
     &virtio_serial_cfg_##inst,\
     SERIAL_PRIORITY,\
-    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,\
+    CONFIG_APPLICATION_INIT_PRIORITY,\
     &virtio_serial_api);
+
+#else /* CONFIG_VIRTIO_MMIO_USE_IVSHMEM */
+
+#define CREATE_VIRTIO_SERIAL_DEVICE(inst) \
+    struct virtqueue *vq_list_##inst[] = {NULL, NULL};\
+    static const struct virtio_serial_config virtio_serial_cfg_##inst = {\
+        .bus = DEVICE_DT_GET(DT_BUS(DT_INST(inst, DT_DRV_COMPAT))),\
+        .vq_count = 2,\
+        .vqs = &vq_list_##inst[0],\
+        };\
+    static struct virtio_serial_chan __chan0__##inst = {\
+        .tx_inuse = ATOMIC_INIT(0),\
+        .rx_inuse = ATOMIC_INIT(0),\
+        .rxpoll_active = false,\
+        .txpoll_active = false,\
+    };\
+    static struct virtio_serial_data virtio_serial_data_##inst = {\
+    .chan0 = &__chan0__##inst,\
+    };\
+    DEVICE_DT_INST_DEFINE(	inst,\
+    vtio_serial_init,\
+    NULL,\
+    &virtio_serial_data_##inst,\
+    &virtio_serial_cfg_##inst,\
+    SERIAL_PRIORITY,\
+    CONFIG_APPLICATION_INIT_PRIORITY,\
+    &virtio_serial_api);
+
+#endif
 
 static int vtio_serial_init(const struct device *dev)
 {
@@ -69,6 +100,14 @@ static int vtio_serial_init(const struct device *dev)
     struct virtio_serial_data *dev_data = DEV_DATA(dev);
     void (*cbs[])(void *) = {NULL, NULL};
     void *cb_args[] = {NULL, NULL};
+
+#if defined(CONFIG_VIRTIO_MMIO_USE_IVSHMEM)
+    /* Replace the static declared virtqueues with IVSHMEM declared one*/
+    extern struct virtqueue * virtio_mmio_virtqueue_alloc(int n, int align);
+
+    DEV_CFG(dev)->vqs[0] = virtio_mmio_virtqueue_alloc(VQIN_SIZE, 4096);
+    DEV_CFG(dev)->vqs[1] = virtio_mmio_virtqueue_alloc(VQOUT_SIZE, 4096);
+#endif
 
     if (!vdev || !vdev->priv /*|| !(((struct virtio_mmio_device *)(vdev->priv))->user_data)*/ ) {
         return -1;
