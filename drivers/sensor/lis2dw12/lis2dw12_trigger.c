@@ -256,6 +256,8 @@ static void lis2dw12_handle_interrupt(const struct device *dev)
 
 	if (sources.status_dup.drdy) {
 		lis2dw12_handle_drdy_int(dev);
+		/* For some reason WU is being routed to the DRDY*/
+		lis2dw12_handle_wu_ia_int(dev);
 	}
 #ifdef CONFIG_LIS2DW12_TAP
 	if (sources.status_dup.single_tap) {
