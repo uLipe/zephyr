@@ -537,7 +537,7 @@ static int stm32_ospi_disable_wp(const struct device *dev)
 	int ret = ospi_write_access(dev, &s_command, &wp_contents, sizeof(wp_contents));
 	// if(ret) {
 	// 	printk("failed to write WP register: %d\n", ret);
-	// } 
+	// }
 
 	return ret;
 }
@@ -986,7 +986,7 @@ static int flash_stm32_ospi_erase(const struct device *dev, off_t addr,
 	stm32_ospi_read_status_register(dev,0, &sreg);
 	if(sreg & 0x01) {
 		ospi_unlock_thread(dev);
-		LOG_ERR("Erase failed : flash busy");
+		printk("Erase failed : flash busy");
 		return -EBUSY;
 	}
 
@@ -1003,7 +1003,7 @@ static int flash_stm32_ospi_erase(const struct device *dev, off_t addr,
 		ret = stm32_ospi_write_enable(&dev_data->hospi,
 			dev_cfg->data_mode, dev_cfg->data_rate);
 		if (ret != 0) {
-			LOG_ERR("Erase failed : write enable");
+			printk("Erase failed : write enable");
 			break;
 		}
 
@@ -1011,82 +1011,23 @@ static int flash_stm32_ospi_erase(const struct device *dev, off_t addr,
 			stm32_ospi_read_status_register(dev,0, &sreg);
 		} while (!(sreg & 0x02));
 
-		// if (size == dev_cfg->flash_size) {
-		// 	/* Chip erase */
-		// 	LOG_DBG("Chip Erase");
-		// 	uint32_t bulk_addr = 0;
-		// 	uint32_t blocks = 1024;
+		/* Use the default sector erase cmd */
+		cmd_erase.Instruction = 0xD8;
+		cmd_erase.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
+		cmd_erase.AddressDtrMode = HAL_OSPI_ADDRESS_DTR_DISABLE;
+		cmd_erase.AddressSize = stm32_ospi_hal_address_size(dev);
+		cmd_erase.Address = addr;
+		/* Avoid using wrong erase type,
+			* if zero entries are found in erase_types
+			*/
 
-		// 	do {
-		// 		cmd_erase.Instruction = 0xD8;
-		// 		cmd_erase.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
-		// 		cmd_erase.AddressDtrMode = HAL_OSPI_ADDRESS_DTR_DISABLE;
-		// 		cmd_erase.AddressSize = stm32_ospi_hal_address_size(dev);
-		// 		cmd_erase.Address = bulk_addr;
+		ospi_send_cmd(dev, &cmd_erase);
+		addr += SPI_NOR_SECTOR_SIZE;
+		size -= SPI_NOR_SECTOR_SIZE;
 
-		// 		ret = ospi_send_cmd(dev, &cmd_erase);
-		// 		if(ret){
-		// 			printk("Failed to erase at: 0x%X \n", bulk_addr);
-		// 			return ret;
-		// 		}
-
-		// 		do {
-		// 			stm32_ospi_read_status_register(dev,0, &sreg);
-		// 		} while (sreg & 0x01);
-
-		// 		bulk_addr += SPI_NOR_BLOCK_SIZE;
-		// 		size -= SPI_NOR_BLOCK_SIZE;
-
-		// 	} while(blocks--);
-
-		// } else {
-			/* Sector erase */
-			LOG_DBG("Sector Erase");
-
-			cmd_erase.Address = addr;
-			const struct jesd216_erase_type *erase_types =
-							dev_data->erase_types;
-			const struct jesd216_erase_type *bet = NULL;
-
-			for (uint8_t ei = 0;
-				ei < JESD216_NUM_ERASE_TYPES; ++ei) {
-				const struct jesd216_erase_type *etp =
-							&erase_types[ei];
-
-				if ((etp->exp != 0)
-				    && SPI_NOR_IS_ALIGNED(addr, etp->exp)
-				    && SPI_NOR_IS_ALIGNED(size, etp->exp)
-				    && ((bet == NULL)
-					|| (etp->exp > bet->exp))) {
-					bet = etp;
-					cmd_erase.Instruction = 0xD8;
-				} else {
-				/* Use the default sector erase cmd */
-					cmd_erase.Instruction = 0xD8;
-					cmd_erase.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
-					cmd_erase.AddressDtrMode = HAL_OSPI_ADDRESS_DTR_DISABLE;
-					cmd_erase.AddressSize = stm32_ospi_hal_address_size(dev);
-					cmd_erase.Address = addr;
-					/* Avoid using wrong erase type,
-					 * if zero entries are found in erase_types
-					 */
-					bet = NULL;
-				}
-			}
-
-			ospi_send_cmd(dev, &cmd_erase);
-			if (bet != NULL) {
-				addr += BIT(bet->exp);
-				size -= BIT(bet->exp);
-			} else {
-				addr += SPI_NOR_SECTOR_SIZE;
-				size -= SPI_NOR_SECTOR_SIZE;
-			}
-
-			do {
-				stm32_ospi_read_status_register(dev,0, &sreg);
-			} while (sreg & 0x01);
-//		}
+		do {
+			stm32_ospi_read_status_register(dev,0, &sreg);
+		} while (sreg & 0x01);
 
 	}
 
