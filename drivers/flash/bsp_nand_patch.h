@@ -39,6 +39,6 @@
 #undef SPI_NOR_BLOCK_SIZE
 #define SPI_NOR_PAGE_SIZE    2048
 #define SPI_NOR_SECTOR_SIZE  SPI_NOR_PAGE_SIZE
-#define SPI_NOR_BLOCK_SIZE   ((128 * 1024) + (4 * 1024))
+#define SPI_NOR_BLOCK_SIZE   ((128 * 1024))
 
 #endif /*__SPI_NOR_H__*/

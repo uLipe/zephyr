@@ -477,7 +477,7 @@ static bool ospi_address_is_valid(const struct device *dev, off_t addr,
 	const struct flash_stm32_ospi_config *dev_cfg = dev->config;
 	size_t flash_size = dev_cfg->flash_size;
 
-	return (addr >= 0) && ((uint64_t)addr + (uint64_t)size <= flash_size);
+	return (addr >= 0);
 }
 
 static int stm32_ospi_read_status_register(const struct device *dev, uint8_t reg_num, uint8_t *reg)
@@ -970,7 +970,7 @@ static int flash_stm32_ospi_erase(const struct device *dev, off_t addr,
 		return -ENOTSUP;
 	}
 
-	stm32_ospi_mem_read_id(dev);
+	//stm32_ospi_mem_read_id(dev);
 
 	OSPI_RegularCmdTypeDef cmd_erase = {
 		.OperationType = HAL_OSPI_OPTYPE_COMMON_CFG,
@@ -1016,7 +1016,7 @@ static int flash_stm32_ospi_erase(const struct device *dev, off_t addr,
 		cmd_erase.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
 		cmd_erase.AddressDtrMode = HAL_OSPI_ADDRESS_DTR_DISABLE;
 		cmd_erase.AddressSize = stm32_ospi_hal_address_size(dev);
-		cmd_erase.Address = addr;
+		cmd_erase.Address = (addr / SPI_NOR_PAGE_SIZE);
 		/* Avoid using wrong erase type,
 			* if zero entries are found in erase_types
 			*/
@@ -1061,7 +1061,7 @@ static int flash_stm32_ospi_read(const struct device *dev, off_t addr,
 	cmd.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
 	cmd.InstructionSize = HAL_OSPI_INSTRUCTION_8_BITS;
 	cmd.DataMode = HAL_OSPI_DATA_NONE;
-	cmd.Address = addr;
+	cmd.Address = (addr / SPI_NOR_PAGE_SIZE);
 	cmd.AddressSize = stm32_ospi_hal_address_size(dev);
 	cmd.Instruction = 0x13;
 	cmd.DummyCycles = 0;
@@ -1152,13 +1152,6 @@ static int flash_stm32_ospi_write(const struct device *dev, off_t addr,
 			to_write = SPI_NOR_PAGE_SIZE;
 		}
 
-		/* Don't write across a page boundary */
-		if (((addr + to_write - 1U) / SPI_NOR_PAGE_SIZE)
-		    != (addr / SPI_NOR_PAGE_SIZE)) {
-			to_write = SPI_NOR_PAGE_SIZE -
-						(addr % SPI_NOR_PAGE_SIZE);
-		}
-
 		cmd_pp.Instruction = 0x34;//0x84;
 		cmd_pp.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
 		cmd_pp.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
@@ -1173,7 +1166,7 @@ static int flash_stm32_ospi_write(const struct device *dev, off_t addr,
 		}
 
 		cmd_pp.Instruction = 0x10;
-		cmd_pp.Address = addr;
+		cmd_pp.Address = (addr / SPI_NOR_PAGE_SIZE);
 		cmd_pp.AddressSize = HAL_OSPI_ADDRESS_24_BITS;
 		cmd_pp.DataMode = HAL_OSPI_DATA_NONE;
 
