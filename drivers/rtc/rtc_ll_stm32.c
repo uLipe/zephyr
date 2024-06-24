@@ -137,7 +137,7 @@ static int rtc_stm32_configure(const struct device *dev)
 	LL_RTC_EnableShadowRegBypass(RTC);
 #endif /* RTC_CR_BYPSHAD */
 
-	LL_RTC_EnableWriteProtection(RTC);
+	//LL_RTC_EnableWriteProtection(RTC);
 
 	return err;
 }

@@ -33,6 +33,18 @@ void z_pm_save_idle_exit(void)
 #endif
 }
 
+static bool allow_low_power_idle_flag = false;
+
+void allow_low_power_idle(void)
+{
+	allow_low_power_idle_flag = true;
+}
+
+void forbid_low_power_idle(void)
+{
+	allow_low_power_idle_flag = false;
+}
+
 void idle(void *unused1, void *unused2, void *unused3)
 {
 	ARG_UNUSED(unused1);
@@ -67,23 +79,27 @@ void idle(void *unused1, void *unused2, void *unused3)
 #ifdef CONFIG_PM
 		_kernel.idle = z_get_next_timeout_expiry();
 
-		/*
-		 * Call the suspend hook function of the soc interface
-		 * to allow entry into a low power state. The function
-		 * returns false if low power state was not entered, in
-		 * which case, kernel does normal idle processing.
-		 *
-		 * This function is entered with interrupts disabled.
-		 * If a low power state was entered, then the hook
-		 * function should enable inerrupts before exiting.
-		 * This is because the kernel does not do its own idle
-		 * processing in those cases i.e. skips k_cpu_idle().
-		 * The kernel's idle processing re-enables interrupts
-		 * which is essential for the kernel's scheduling
-		 * logic.
-		 */
-		if (k_is_pre_kernel() || !pm_system_suspend(_kernel.idle)) {
-			k_cpu_idle();
+		if(allow_low_power_idle_flag) {
+			/*
+			* Call the suspend hook function of the soc interface
+			* to allow entry into a low power state. The function
+			* returns false if low power state was not entered, in
+			* which case, kernel does normal idle processing.
+			*
+			* This function is entered with interrupts disabled.
+			* If a low power state was entered, then the hook
+			* function should enable inerrupts before exiting.
+			* This is because the kernel does not do its own idle
+			* processing in those cases i.e. skips k_cpu_idle().
+			* The kernel's idle processing re-enables interrupts
+			* which is essential for the kernel's scheduling
+			* logic.
+			*/
+			if (k_is_pre_kernel() || !pm_system_suspend(_kernel.idle)) {
+				k_cpu_idle();
+			}
+		} else {
+				k_cpu_idle();
 		}
 #else
 		k_cpu_idle();
