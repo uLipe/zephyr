@@ -5,6 +5,7 @@ zephyr_syscall_header(${ZEPHYR_BASE}/include/zephyr/drivers/rtc.h)
 
 zephyr_library()
 
+zephyr_library_sources(rtc_utils.c)
 zephyr_library_sources_ifdef(CONFIG_RTC_AM1805 rtc_am1805.c)
 zephyr_library_sources_ifdef(CONFIG_USERSPACE rtc_handlers.c)
 zephyr_library_sources_ifdef(CONFIG_RTC_EMUL rtc_emul.c)
