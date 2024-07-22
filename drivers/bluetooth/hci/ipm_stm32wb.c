@@ -558,12 +558,10 @@ static int bt_ipm_open(void)
 			K_PRIO_COOP(CONFIG_BT_DRIVER_RX_HIGH_PRIO),
 			0, K_NO_WAIT);
 
-#ifdef CONFIG_BT_HCI_HOST
 	err = bt_ipm_ble_init();
 	if (err) {
 		return err;
 	}
-#endif /* CONFIG_BT_HCI_HOST */
 
 	LOG_DBG("IPM Channel Open Completed");
 
