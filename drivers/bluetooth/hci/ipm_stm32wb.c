@@ -421,7 +421,7 @@ bt_addr_t *bt_get_ble_addr(void)
 	return bd_addr;
 }
 
-static int bt_ipm_set_addr(void)
+int bt_ipm_set_addr(void)
 {
 	bt_addr_t *uid_addr;
 	struct aci_set_ble_addr *param;
