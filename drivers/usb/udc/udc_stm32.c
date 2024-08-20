@@ -907,92 +907,94 @@ static const struct stm32_pclken pclken[] = STM32_DT_INST_CLOCKS(0);
 
 static int priv_clock_enable(void)
 {
-	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+// 	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 
-	if (!device_is_ready(clk)) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
-	}
+// 	if (!device_is_ready(clk)) {
+// 		LOG_ERR("clock control device not ready");
+// 		return -ENODEV;
+// 	}
 
-#ifdef CONFIG_SOC_SERIES_STM32U5X
-	/* VDDUSB independent USB supply (PWR clock is on) */
-	LL_PWR_EnableVDDUSB();
-#endif /* CONFIG_SOC_SERIES_STM32U5X */
-#if defined(CONFIG_SOC_SERIES_STM32H7X)
-	LL_PWR_EnableUSBVoltageDetector();
+// #ifdef CONFIG_SOC_SERIES_STM32U5X
+// 	/* VDDUSB independent USB supply (PWR clock is on) */
+// 	LL_PWR_EnableVDDUSB();
+// #endif /* CONFIG_SOC_SERIES_STM32U5X */
+// #if defined(CONFIG_SOC_SERIES_STM32H7X)
+// 	LL_PWR_EnableUSBVoltageDetector();
 
-	/* Per AN2606: USBREGEN not supported when running in FS mode. */
-	LL_PWR_DisableUSBReg();
-	while (!LL_PWR_IsActiveFlag_USB()) {
-		LOG_INF("PWR not active yet");
-		k_sleep(K_MSEC(100));
-	}
-#endif
+// 	/* Per AN2606: USBREGEN not supported when running in FS mode. */
+// 	LL_PWR_DisableUSBReg();
+// 	while (!LL_PWR_IsActiveFlag_USB()) {
+// 		LOG_INF("PWR not active yet");
+// 		k_sleep(K_MSEC(100));
+// 	}
+// #endif
 
-	if (DT_INST_NUM_CLOCKS(0) > 1) {
-		if (clock_control_configure(clk, (clock_control_subsys_t *)&pclken[1],
-									NULL) != 0) {
-			LOG_ERR("Could not select USB domain clock");
-			return -EIO;
-		}
-	}
+// 	if (DT_INST_NUM_CLOCKS(0) > 1) {
+// 		if (clock_control_configure(clk, (clock_control_subsys_t *)&pclken[1],
+// 									NULL) != 0) {
+// 			LOG_ERR("Could not select USB domain clock");
+// 			return -EIO;
+// 		}
+// 	}
 
-	if (clock_control_on(clk, (clock_control_subsys_t *)&pclken[0]) != 0) {
-		LOG_ERR("Unable to enable USB clock");
-		return -EIO;
-	}
+// 	if (clock_control_on(clk, (clock_control_subsys_t *)&pclken[0]) != 0) {
+// 		LOG_ERR("Unable to enable USB clock");
+// 		return -EIO;
+// 	}
 
-	if (IS_ENABLED(CONFIG_USB_DC_STM32_CLOCK_CHECK)) {
-		uint32_t usb_clock_rate;
+// 	if (IS_ENABLED(CONFIG_USB_DC_STM32_CLOCK_CHECK)) {
+// 		uint32_t usb_clock_rate;
 
-		if (clock_control_get_rate(clk,
-					   (clock_control_subsys_t *)&pclken[1],
-					   &usb_clock_rate) != 0) {
-			LOG_ERR("Failed to get USB domain clock rate");
-			return -EIO;
-		}
+// 		if (clock_control_get_rate(clk,
+// 					   (clock_control_subsys_t *)&pclken[1],
+// 					   &usb_clock_rate) != 0) {
+// 			LOG_ERR("Failed to get USB domain clock rate");
+// 			return -EIO;
+// 		}
 
-		if (usb_clock_rate != MHZ(48)) {
-			LOG_ERR("USB Clock is not 48MHz (%d)", usb_clock_rate);
-			return -ENOTSUP;
-		}
-	}
+// 		if (usb_clock_rate != MHZ(48)) {
+// 			LOG_ERR("USB Clock is not 48MHz (%d)", usb_clock_rate);
+// 			return -ENOTSUP;
+// 		}
+// 	}
 
-	/* Previous check won't work in case of F1/F3. Add build time check */
-#if defined(RCC_CFGR_OTGFSPRE) || defined(RCC_CFGR_USBPRE)
+// 	/* Previous check won't work in case of F1/F3. Add build time check */
+// #if defined(RCC_CFGR_OTGFSPRE) || defined(RCC_CFGR_USBPRE)
 
-#if (MHZ(48) == CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC) && !defined(STM32_PLL_USBPRE)
-	/* PLL output clock is set to 48MHz, it should not be divided */
-#warning USBPRE/OTGFSPRE should be set in rcc node
-#endif
+// #if (MHZ(48) == CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC) && !defined(STM32_PLL_USBPRE)
+// 	/* PLL output clock is set to 48MHz, it should not be divided */
+// #warning USBPRE/OTGFSPRE should be set in rcc node
+// #endif
 
-#endif /* RCC_CFGR_OTGFSPRE / RCC_CFGR_USBPRE */
+// #endif /* RCC_CFGR_OTGFSPRE / RCC_CFGR_USBPRE */
 
-#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otghs)
-#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_usbphyc)
-	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
-	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_OTGPHYC);
-#elif defined(CONFIG_SOC_SERIES_STM32H7X)
-#if !USB_OTG_HS_ULPI_PHY
-	/* Disable ULPI interface (for external high-speed PHY) clock in sleep
-	 * mode.
-	 */
-	LL_AHB1_GRP1_DisableClockSleep(LL_AHB1_GRP1_PERIPH_USB1OTGHSULPI);
-#endif
-#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otgfs)
-	/* The USB2 controller only works in FS mode, but the ULPI clock needs
-	 * to be disabled in sleep mode for it to work.
-	 */
-	LL_AHB1_GRP1_DisableClockSleep(LL_AHB1_GRP1_PERIPH_USB2OTGHSULPI);
-#endif
-#else
-	/* Disable ULPI interface (for external high-speed PHY) clock in low
-	 * power mode. It is disabled by default in run power mode, no need to
-	 * disable it.
-	 */
-	LL_AHB1_GRP1_DisableClockLowPower(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
-#endif
-#endif
+// #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otghs)
+// #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_usbphyc)
+// 	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
+// 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_OTGPHYC);
+// #elif defined(CONFIG_SOC_SERIES_STM32H7X)
+// #if !USB_OTG_HS_ULPI_PHY
+// 	/* Disable ULPI interface (for external high-speed PHY) clock in sleep
+// 	 * mode.
+// 	 */
+// 	LL_AHB1_GRP1_DisableClockSleep(LL_AHB1_GRP1_PERIPH_USB1OTGHSULPI);
+// #endif
+// #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otgfs)
+// 	/* The USB2 controller only works in FS mode, but the ULPI clock needs
+// 	 * to be disabled in sleep mode for it to work.
+// 	 */
+// 	LL_AHB1_GRP1_DisableClockSleep(LL_AHB1_GRP1_PERIPH_USB2OTGHSULPI);
+// #endif
+// #else
+// 	/* Disable ULPI interface (for external high-speed PHY) clock in low
+// 	 * power mode. It is disabled by default in run power mode, no need to
+// 	 * disable it.
+// 	 */
+// 	LL_AHB1_GRP1_DisableClockLowPower(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
+// #endif
+// #endif
+
+
 
 	return 0;
 }
@@ -1081,6 +1083,7 @@ static int udc_stm32_driver_init0(const struct device *dev)
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority), udc_stm32_irq,
 		    DEVICE_DT_INST_GET(0), 0);
 
+
 	err = pinctrl_apply_state(usb_pcfg, PINCTRL_STATE_DEFAULT);
 	if (err < 0) {
 		LOG_ERR("USB pinctrl setup failed (%d)", err);
@@ -1133,6 +1136,8 @@ static int udc_stm32_driver_init0(const struct device *dev)
 	LL_PWR_EnableVddUSB();
 #endif /* defined(LL_APB1_GRP1_PERIPH_PWR) */
 #endif /* PWR_CR2_USV */
+	irq_enable(OTG_HS_IRQn);
+
 
 	return 0;
 }

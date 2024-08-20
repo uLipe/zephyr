@@ -18,9 +18,6 @@ LOG_MODULE_REGISTER(shell_uart);
 #define RX_POLL_PERIOD K_NO_WAIT
 #endif
 
-extern int USBD_CDC_ACM_Write(char *buff, int buflen);
-extern int USBD_CDC_ACM_Read(char *buff, int buflen);
-
 #ifdef CONFIG_MCUMGR_TRANSPORT_SHELL
 NET_BUF_POOL_DEFINE(smp_shell_rx_pool, CONFIG_MCUMGR_TRANSPORT_SHELL_RX_BUF_COUNT,
 		    SMP_SHELL_RX_BUF_SIZE, 0, NULL);
@@ -206,8 +203,7 @@ static void timer_handler(struct k_timer *timer)
 	uint8_t c;
 	const struct shell_uart *sh_uart = k_timer_user_data_get(timer);
 
-	while (USBD_CDC_ACM_Read(&c, 1) > 0/*uart_poll_in(sh_uart->ctrl_blk->dev, &c) == 0*/) {
-		USBD_CDC_ACM_Read(&c, 1);
+	while (uart_poll_in(sh_uart->ctrl_blk->dev, &c) == 0) {
 		if (ring_buf_put(sh_uart->rx_ringbuf, &c, 1) == 0U) {
 			/* ring buffer full. */
 			LOG_WRN("RX ring buffer full.");
@@ -300,9 +296,8 @@ static int write(const struct shell_transport *transport,
 	} else {
 		for (size_t i = 0; i < length; i++) {
 			uart_poll_out(sh_uart->ctrl_blk->dev, data8[i]);
-			USBD_CDC_ACM_Write(&data8[i], 1);
 		}
-
+		
 		*cnt = length;
 
 		sh_uart->ctrl_blk->handler(SHELL_TRANSPORT_EVT_TX_RDY,
