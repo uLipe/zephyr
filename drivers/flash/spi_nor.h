@@ -113,6 +113,4 @@
 #define SPI_NOR_IS_32K_ALIGNED(_ofs) SPI_NOR_IS_ALIGNED(_ofs, 15)
 #define SPI_NOR_IS_64K_ALIGNED(_ofs) SPI_NOR_IS_ALIGNED(_ofs, 16)
 
-#include "bsp_nand_patch.h"
-
 #endif /*__SPI_NOR_H__*/
