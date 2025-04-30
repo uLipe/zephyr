@@ -23,6 +23,8 @@ manifest:
       url-base: https://github.com/zephyrproject-rtos
     - name: babblesim
       url-base: https://github.com/BabbleSim
+    - name: ulipe
+      url-base: https://github.com/uLipe
 
   group-filter: [-babblesim, -optional]
 
@@ -222,11 +224,6 @@ manifest:
       path: modules/hal/quicklogic
       groups:
         - hal
-    - name: hal_renesas
-      path: modules/hal/renesas
-      revision: 15c3f057d5715b78b0a2201314b07ad6d2dbd1b1
-      groups:
-        - hal
     - name: hal_rpi_pico
       path: modules/hal/rpi_pico
       revision: 7b57b24588797e6e7bf18b6bda168e6b96374264
@@ -299,9 +296,6 @@ manifest:
     - name: loramac-node
       revision: fb00b383072518c918e2258b0916c996f2d4eebe
       path: modules/lib/loramac-node
-    - name: lvgl
-      revision: 1ed1ddd881c3784049a92bb9fe37c38c6c74d998
-      path: modules/lib/gui/lvgl
     - name: mbedtls
       revision: 5f889934359deccf421554c7045a8381ef75298f
       path: modules/crypto/mbedtls
@@ -369,6 +363,17 @@ manifest:
       revision: 9b07780aca6fb21f82a241ba386ad9b379809337
       path: modules/lib/zcbor
   # zephyr-keep-sorted-stop
+
+  # Forks for addition to dave2d on the renesas + lvgl:
+    - name: hal_renesas
+      remote: ulipe
+      path: modules/hal/renesas
+      revision: a8969b70df1deea0aac56169f6f3d39bc431a114
+ 
+    - name: lvgl_module
+      remote: ulipe
+      revision: 93d238b240317cf82b2df6770d5d3b8093a1cfe1
+      path: modules/lib/gui/lvgl
 
   self:
     path: zephyr
