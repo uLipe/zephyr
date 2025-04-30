@@ -21,8 +21,8 @@
 			compatible = "renesas,ra-glcdc";
 			reg = <0x40342000 0x1454>;
 			clocks = <&lcdclk MSTPC 4>;
-			interrupts = <71 1>;
-			interrupt-names = "line";
+			interrupts = <71 1>, <78 1>, <79 1>, <80 1>;
+			interrupt-names = "line", "drw", "und1", "und2";
 			status = "disabled";
 		};
 

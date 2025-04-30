@@ -25,6 +25,9 @@ struct display_ra_config {
 	uint16_t height;
 	uint16_t width;
 	void (*irq_configure)(void);
+#if CONFIG_LV_USE_DRAW_DAVE2D
+	void (*drw_irq_configure)(void);
+#endif
 };
 
 struct display_ra_data {
@@ -411,9 +414,20 @@ static int display_init(const struct device *dev)
 	}
 
 	config->irq_configure();
+#if CONFIG_LV_USE_DRAW_DAVE2D
+	config->drw_irq_configure();
+#endif
 
 	return 0;
 }
+
+/*
+ * This is a temporary hack to enable drw irq in display driver, for official development this need
+ * to be put inside separate driver
+ */
+#if CONFIG_LV_USE_DRAW_DAVE2D
+extern void drw_int_isr(void);
+#endif
 
 #define IRQ_CONFIGURE_FUNC(id)                                                                     \
 	static void glcdc_renesas_ra_configure_func_##id(void)                                     \
@@ -426,8 +440,32 @@ static int display_init(const struct device *dev)
 		irq_enable(DT_INST_IRQ_BY_NAME(id, line, irq));                                    \
 	}
 
-#define IRQ_CONFIGURE_DEFINE(id) .irq_configure = glcdc_renesas_ra_configure_func_##id
+/*
+ * This is a temporary hack to enable drw irq in display driver, for official development this need
+ * to be put inside separate driver
+ */
+#if CONFIG_LV_USE_DRAW_DAVE2D
+#define IRQ_CONFIG_DRW_FUNC(id)                                                                    \
+	static void drw_renesas_ra_configure_func_##id(void)                                       \
+	{                                                                                          \
+		R_ICU->IELSR[DT_INST_IRQ_BY_NAME(id, drw, irq)] = ELC_EVENT_DRW_INT;               \
+		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(id, drw, irq),                                     \
+			    DT_INST_IRQ_BY_NAME(id, drw, priority), drw_int_isr,                   \
+			    DEVICE_DT_INST_GET(id), 0);                                            \
+		irq_enable(DT_INST_IRQ_BY_NAME(id, drw, irq));                                     \
+	}
+#else
+#define IRQ_CONFIG_DRW_FUNC(id)
+#endif
 
+#if CONFIG_LV_USE_DRAW_DAVE2D
+#define IRQ_CONFIGURE_DEFINE(id)                                                                   \
+	.irq_configure = glcdc_renesas_ra_configure_func_##id,                                     \
+	.drw_irq_configure = drw_renesas_ra_configure_func_##id
+#else
+#define IRQ_CONFIGURE_DEFINE(id) .irq_configure = glcdc_renesas_ra_configure_func_##id
+#endif
+ 
 #define RENESAS_RA_FRAME_BUFFER_LEN(id)                                                            \
 	(RENESAS_RA_GLCDC_PIXEL_BYTE_SIZE(id) * DT_INST_PROP(id, height) * DT_INST_PROP(id, width))
 
@@ -447,6 +485,7 @@ static int display_init(const struct device *dev)
 #define RENESAS_RA_DEVICE_INIT(id)                                                                 \
 	RENESAS_RA_GLCDC_DEVICE_PINCTRL_INIT(id);                                                  \
 	IRQ_CONFIGURE_FUNC(id)                                                                     \
+	IRQ_CONFIG_DRW_FUNC(id)     															   \
 	FRAME_BUFFER_SECTION static uint8_t __aligned(64)                                          \
 	fb_background##id[CONFIG_RENESAS_RA_GLCDC_FB_NUM * RENESAS_RA_FRAME_BUFFER_LEN(id)];       \
 	static const glcdc_extended_cfg_t display_extend_cfg##id = {                               \
