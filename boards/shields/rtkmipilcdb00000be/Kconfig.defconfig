@@ -42,14 +42,13 @@ config LV_Z_FULL_REFRESH
 	default y
 
 config LV_Z_BITS_PER_PIXEL
-	default 32
+	default 16
 
-# Use offloaded render thread
-config LV_Z_FLUSH_THREAD
-	default y
+config LV_Z_VDB_ALIGN
+	default 64
 
 choice LV_COLOR_DEPTH
-	default LV_COLOR_DEPTH_32
+	default LV_COLOR_DEPTH_16
 endchoice
 
 endif # LVGL

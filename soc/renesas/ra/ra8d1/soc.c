@@ -41,8 +41,8 @@ extern void NMI_Handler(void);
  */
 void soc_early_init_hook(void)
 {
-	SystemCoreClock = BSP_MOCO_HZ;
-	g_protect_pfswe_counter = 0;
+	// SystemCoreClock = BSP_MOCO_HZ;
+	// g_protect_pfswe_counter = 0;
 
 #ifdef CONFIG_ICACHE
 	SCB->CCR = (uint32_t)CCR_CACHE_ENABLE;
@@ -67,6 +67,23 @@ void soc_early_init_hook(void)
 	sys_cache_data_enable();
 #endif
 
+ 
+	MEMSYSCTL->MSCR |= MEMSYSCTL_MSCR_FORCEWT_Msk;
+	barrier_dsync_fence_full();
+	barrier_isync_fence_full();
+	ICB->ACTLR |= (1U << 16U);
+	barrier_dsync_fence_full();
+	barrier_isync_fence_full();
+		/* Invalidate I-Cache after initializing the .code_in_ram section. */
+	SCB_InvalidateICache();
+
+	SCB_EnableDCache();
+	R_BSP_FlashCacheEnable();
+		/* Invalidate the Data Cache */
+	SCB_InvalidateDCache();
+	SystemCoreClock = BSP_MOCO_HZ;
+	g_protect_pfswe_counter = 0;
+	
 #ifdef CONFIG_RUNTIME_NMI
 	for (uint32_t i = 0; i < 16; i++) {
 		g_bsp_group_irq_sources[i] = 0;
