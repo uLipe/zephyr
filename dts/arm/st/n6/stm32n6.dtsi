@@ -41,7 +41,7 @@
 		compatible = "mmio-sram";
 	};
 
-	axisram2: memory@34180400 {
+	axisram2: memory@34100000 {
 		compatible = "mmio-sram";
 	};
 
