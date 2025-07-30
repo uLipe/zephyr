@@ -26,7 +26,7 @@
 
 	axisram2: memory@34100000 {
 		/* This section is the RAM available to FSBL application */
-		reg = <0x34100000 DT_SIZE_M(1)>;
+		reg = <0x34100000 (DT_SIZE_M(1))>;
 	};
 
 	soc {

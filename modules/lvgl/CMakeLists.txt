@@ -118,6 +118,18 @@ zephyr_library_sources(
     ${LVGL_DIR}/src/draw/sw/lv_draw_sw_utils.c
     ${LVGL_DIR}/src/draw/sw/lv_draw_sw_vector.c
 
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_arc.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_border.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_fill.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_img.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_label.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_layer.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_line.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_triangle.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_utils.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx.c
+    ${LVGL_DIR}/src/draw/nema_gfx/lv_nema_gfx_path.c
+
     ${LVGL_DIR}/src/draw/vg_lite/lv_draw_buf_vg_lite.c
     ${LVGL_DIR}/src/draw/vg_lite/lv_draw_vg_lite_arc.c
     ${LVGL_DIR}/src/draw/vg_lite/lv_draw_vg_lite_border.c
@@ -382,6 +394,24 @@ zephyr_library_sources(
     lvgl_display_mono.c
     lvgl_zephyr_osal.c
 )
+
+if(CONFIG_LV_USE_GPU_NEMA_GFX)
+    zephyr_include_directories(${LVGL_DIR}/libs/nema_gfx/include)
+    zephyr_library_sources(lvgl_nema_gfx_zephyr.c)
+
+    if(CONFIG_FPU)
+        zephyr_library_link_libraries(
+            nemagfx-float-abi-hard
+            -L${LVGL_DIR}/libs/nema_gfx/lib/core/cortex_m33_revC/gcc
+            )
+    else()
+        zephyr_library_link_libraries(
+            nemagfx
+            -L${LVGL_DIR}/libs/nema_gfx/lib/core/cortex_m33_revC/gcc
+            )
+    endif()
+endif() #LV_USE_GPU_NEMA_GFX
+
 
 zephyr_library_sources_ifdef(CONFIG_LV_Z_USE_FILESYSTEM lvgl_fs.c)
 zephyr_library_sources_ifdef(CONFIG_LV_Z_MEM_POOL_SYS_HEAP lvgl_mem.c)

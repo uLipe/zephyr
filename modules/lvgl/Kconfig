@@ -209,6 +209,20 @@ config LV_Z_PXP_INTERRUPT_PRIORITY
 	help
 	  Sets the interrupt priority for PXP
 
+config LV_USE_NEMA_GFX
+	bool
+
+config LV_USE_GPU_NEMA_GFX
+	bool
+	default y if LV_USE_NEMA_GFX
+
+config LV_Z_NEMA_GFX_INTERRUPT_PRIORITY
+	int "NEMA GFX GPU interrupt priority"
+	depends on LV_USE_NEMA_GFX
+	default 3
+	help
+	  Sets the interrupt priority for NEMA GFX GPU
+
 rsource "Kconfig.memory"
 rsource "Kconfig.input"
 rsource "Kconfig.shell"

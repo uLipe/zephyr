@@ -43,4 +43,11 @@ config VIDEO_BUFFER_USE_SHARED_MULTI_HEAP
 	default y
 endif # VIDEO
 
+if LVGL
+# Make use of the NEMA GFX GPU
+config 	LV_USE_NEMA_GFX
+	select USE_STM32_HAL_GPU2D
+	default y
+endif # LVGL
+
 endif # BOARD_STM32N6570_DK
