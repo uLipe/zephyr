@@ -1392,6 +1392,16 @@
 			resets = <&rctl STM32_RESET(AHB5, 3)>;
 			status = "disabled";
 		};
+
+		gpu2d: gpu2d@5002f000 {
+			compatible = "st,stm32-gpu2d";
+			reg = <0x5002f000 0x1000>;
+			clocks = <&rcc STM32_CLOCK(AHB1, 20)>;
+			resets = <&rctl STM32_RESET(AHB1, 20)>;
+			interrupts = <132 0>, <133 0>;
+			interrupt-names = "gpu2d_complete", "gpu2d_error";
+			status = "disabled";
+        };
 	};
 };
 

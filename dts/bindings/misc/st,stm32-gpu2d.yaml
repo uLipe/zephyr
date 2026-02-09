@@ -1,0 +1,21 @@
+# Copyright (c) 2025 Felipe Neves. Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+description: STM32 GPU2D graphics accelerator
+
+compatible: "st,stm32-gpu2d"
+
+include: [reset-device.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  clocks:
+    required: true
+
+  interrupts:
+    required: true
+
+  resets:
+    required: true
