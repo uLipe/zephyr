@@ -108,7 +108,6 @@ zephyr_library_sources(
     ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_label.c
     ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_layer.c
     ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_line.c
-    ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_stm32_hal.c
     ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_triangle.c
     ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_utils.c
     ${LVGL_DIR}/src/draw/nema_gfx/lv_draw_nema_gfx_vector.c
@@ -475,6 +474,20 @@ zephyr_library_sources_ifdef(CONFIG_LV_USE_GPU_VG_LITE
     gpus/lvgl_vg_lite_hal_zephyr.c
     gpus/lvgl_vg_lite_hal_stubs.c
 )
+
+zephyr_library_sources_ifdef(CONFIG_LV_USE_GPU_NEMA_GFX
+    gpus/lvgl_nemagfx_hal_zephyr.c
+)
+
+if(CONFIG_LV_USE_NEMA_GFX)
+    zephyr_include_directories(${LVGL_DIR}/libs/nema_gfx/include)
+    if(CONFIG_FPU)
+        zephyr_library_link_libraries(
+            nemagfx-float-abi-hard
+	    -L${LVGL_DIR}/libs/nema_gfx/lib/core/cortex_m55/gcc
+            )
+    endif() #CONFIG_FPU
+endif() #LV_USE_NEMA_GFX
 
 zephyr_library_link_libraries(LVGL)
 target_link_libraries(LVGL INTERFACE zephyr_interface)
